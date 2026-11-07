@@ -135,3 +135,10 @@ def test_only_one_preferred_supplier(client, seed):
         "to_emails": ["x@ingram.com"], "is_preferred": True})
     maps = client.get(f"{API}/vendor-supplier-map", headers=H()).json()
     assert sum(m["is_preferred"] for m in maps) == 1
+
+
+def test_parallel_first_login_is_safe(client):
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(8) as ex:
+        codes = list(ex.map(lambda _: client.get(f"{API}/me", headers=H("new@az.it")).status_code, range(8)))
+    assert codes == [200] * 8

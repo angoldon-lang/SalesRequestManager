@@ -1,6 +1,9 @@
 import os
 
-os.environ["DATABASE_URL"] = "postgresql+psycopg://postgres@/srm_test?host=/var/tmp/srmpg"
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+psycopg://postgres@localhost:5432/srm_test")
+assert os.environ["DATABASE_URL"].split("?")[0].endswith("_test"), \
+    "I test cancellano lo schema: il DB deve terminare con _test"
 os.environ["AUTH_DISABLED"] = "true"
 os.environ["GRAPH_MODE"] = "dry-run"
 

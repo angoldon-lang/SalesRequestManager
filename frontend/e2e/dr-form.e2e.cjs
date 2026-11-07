@@ -1,0 +1,35 @@
+// E2E (Playwright): form DR dinamico. Richiede backend (AUTH_DISABLED=true) + 'npm run dev' e dati seed (scripts/seed_demo.sh).
+const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1300, height: 900 } });
+  const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto('http://localhost:5173/requests/new');
+  await p.waitForSelector('select[aria-label="Tipo richiesta"]');
+  const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
+  ok(await p.locator('[data-testid=dr-box]').count() === 0, 'NUOVO: blocco DR nascosto');
+  await p.selectOption('select[aria-label="Tipo richiesta"]', 'DR');
+  ok(await p.locator('[data-testid=dr-box]').isVisible(), 'DR: blocco DR visibile');
+  await p.locator('main select').nth(1).selectOption({ label: 'Mario Rossi' });
+  await p.locator('main select').nth(2).selectOption({ label: 'Cisco' });
+  await p.waitForTimeout(300);
+  await p.locator('input').first().fill('Cisco - test DR');
+  await p.click('text=Invia al supplier');
+  await p.waitForTimeout(500);
+  const errTxt = await p.locator('.err').allInnerTexts();
+  ok(errTxt.length === 3, `DR: 3 errori obbligatori mostrati (${errTxt.length})`);
+  await p.screenshot({ path: 'dr-errors.png' });
+  const dr = p.locator('[data-testid=dr-box]');
+  await dr.locator('input').nth(0).fill('ACME Spa');
+  await dr.locator('input').nth(1).fill('45000');
+  await dr.locator('input[type=date]').fill('2026-12-31');
+  await p.click('text=Invia al supplier');
+  await p.waitForURL(/\/requests\/\d+$/, { timeout: 5000 });
+  await p.waitForSelector('text=Inviata');
+  ok(await p.locator('text=ACME Spa').count() > 0, 'DR: richiesta inviata e dettaglio mostrato');
+  await p.screenshot({ path: 'dr-detail.png' });
+  await p.goto('http://localhost:5173/'); await p.waitForSelector('text=Richieste inviate');
+  await p.screenshot({ path: 'dashboard.png' });
+  await p.goto('http://localhost:5173/admin'); await p.waitForSelector('text=Reminder dopo X giorni');
+  ok(errs.length === 0, 'nessun errore JS ' + errs.join('|'));
+  await b.close();
+})();

@@ -3,6 +3,7 @@ import jwt
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -55,11 +56,12 @@ def current_user(
     user = db.scalar(select(AppUser).where(AppUser.email == email))
     if user is None:
         is_admin = email in settings.admin_email_set or dev_role == UserRole.ADMIN
-        user = AppUser(
+        # Primo login: la SPA lancia richieste parallele, quindi INSERT idempotente.
+        db.execute(pg_insert(AppUser).values(
             email=email, entra_oid=claims.get("oid"), full_name=claims.get("name") or email,
-            role=UserRole.ADMIN if is_admin else UserRole.OPERATOR)
-        db.add(user)
+            role=UserRole.ADMIN if is_admin else UserRole.OPERATOR).on_conflict_do_nothing())
         db.commit()
+        user = db.scalar(select(AppUser).where(AppUser.email == email))
     if not user.is_active:
         raise HTTPException(403, "Utente disattivato")
     return user

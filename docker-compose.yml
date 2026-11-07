@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: srm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD}
+      POSTGRES_DB: srm
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U srm"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    env_file: .env
+    depends_on: { db: { condition: service_healthy } }
+    expose: ["8000"]
+
+  worker:            # inbound AI + reply tracker + reminder (UN solo worker)
+    build: ./backend
+    command: python -m app.workers.scheduler
+    env_file: .env
+    depends_on: [api]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_AZ_CLIENT_ID: ${AZ_CLIENT_ID}
+        VITE_AZ_TENANT_ID: ${AZ_TENANT_ID}
+    ports: ["8080:80"]
+    depends_on: [api]
+
+volumes:
+  pgdata:
