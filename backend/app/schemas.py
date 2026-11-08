@@ -79,11 +79,13 @@ class UserOut(ORM):
     full_name: str
     role: UserRole
     is_active: bool
+    sales_agent_id: int | None = None
 
 
 class UserPatch(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
+    sales_agent_id: int | None = None   # null esplicito = scollega
 
 
 # ---------- config ----------

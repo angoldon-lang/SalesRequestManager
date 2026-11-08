@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.models import AppUser, UserRole
+from app.models import AppUser, SalesAgent, UserRole
 
 bearer = HTTPBearer(auto_error=False)
 _jwks: jwt.PyJWKClient | None = None
@@ -40,7 +40,10 @@ def current_user(
     if settings.auth_disabled:
         email = (x_dev_user or "dev@local").lower()
         claims = {"preferred_username": email, "name": email.split("@")[0]}
-        dev_role = UserRole.OPERATOR if x_dev_user and x_dev_user.startswith("op") else UserRole.ADMIN
+        # In sviluppo il ruolo si sceglie col prefisso dell'utente: back*, sales*, altrimenti admin
+        h = (x_dev_user or "").lower()
+        dev_role = (UserRole.BACKOFFICE if h.startswith("back") else
+                    UserRole.SALES if h.startswith("sales") else UserRole.ADMIN)
     else:
         if cred is None:
             raise HTTPException(401, "Token mancante")
@@ -55,16 +58,31 @@ def current_user(
         raise HTTPException(401, "Token senza email")
     user = db.scalar(select(AppUser).where(AppUser.email == email))
     if user is None:
-        is_admin = email in settings.admin_email_set or dev_role == UserRole.ADMIN
+        if email in settings.admin_email_set:
+            role = UserRole.ADMIN
+        else:
+            role = dev_role or UserRole(settings.default_role.upper())
         # Primo login: la SPA lancia richieste parallele, quindi INSERT idempotente.
         db.execute(pg_insert(AppUser).values(
             email=email, entra_oid=claims.get("oid"), full_name=claims.get("name") or email,
-            role=UserRole.ADMIN if is_admin else UserRole.OPERATOR).on_conflict_do_nothing())
+            role=role).on_conflict_do_nothing())
         db.commit()
         user = db.scalar(select(AppUser).where(AppUser.email == email))
     if not user.is_active:
         raise HTTPException(403, "Utente disattivato")
+    if user.role == UserRole.SALES and user.sales_agent_id is None:
+        _autolink_agent(db, user)
     return user
+
+
+def _autolink_agent(db: Session, user: AppUser) -> None:
+    """Collega un utente SALES all'agente con la stessa email (se libero)."""
+    taken = select(AppUser.sales_agent_id).where(AppUser.sales_agent_id.is_not(None))
+    agent = db.scalar(select(SalesAgent).where(
+        SalesAgent.email == user.email, SalesAgent.is_active, SalesAgent.id.not_in(taken)))
+    if agent:
+        user.sales_agent_id = agent.id
+        db.commit()
 
 
 def require_admin(user: AppUser = Depends(current_user)) -> AppUser:

@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 from app import schemas as s
 from app.db import get_db
 from app.models import AppUser, GlobalConfig
-from app.security import current_user, require_admin
+from app.access import require_staff
+from app.security import require_admin
 from app.services.request_service import now
 from app.api.requests import graph
 
-router = APIRouter(prefix="/config", dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/config", dependencies=[Depends(require_staff)])
 
 
 @router.get("", response_model=s.ConfigOut)

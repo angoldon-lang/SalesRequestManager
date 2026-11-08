@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     az_client_id: str = ""               # client id dell'app (stesso usato come audience delle API)
     az_client_secret: str = ""           # usato da Graph (client credentials)
     api_audience: str = ""               # default: az_client_id
+    default_role: str = "SALES"          # ruolo dei nuovi utenti al primo login (privilegio minimo)
     admin_emails: str = ""               # lista separata da virgola: diventano ADMIN al primo login
 
     # --- Graph ---

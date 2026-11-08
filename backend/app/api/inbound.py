@@ -5,12 +5,12 @@ from sqlalchemy.orm import Session
 from app import schemas as s
 from app.db import get_db
 from app.models import InboundEmail, InboundStatus, Request
-from app.security import current_user
+from app.access import require_staff
 from app.services.inbound_service import process_row
 from app.services.llm_parser import get_parser
 from app.services.request_service import get_config
 
-router = APIRouter(prefix="/inbound", dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/inbound", dependencies=[Depends(require_staff)])
 
 
 def _row(db: Session, iid: int) -> InboundEmail:

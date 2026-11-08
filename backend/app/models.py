@@ -45,8 +45,9 @@ class RequestSource(str, enum.Enum):
 
 
 class UserRole(str, enum.Enum):
-    ADMIN = "ADMIN"
-    OPERATOR = "OPERATOR"
+    ADMIN = "ADMIN"            # Admin / Direzione Sales
+    BACKOFFICE = "BACKOFFICE"
+    SALES = "SALES"
 
 
 class InboundStatus(str, enum.Enum):
@@ -66,7 +67,8 @@ class AppUser(Base):
     entra_oid: Mapped[str | None] = mapped_column(UUID(as_uuid=False), unique=True)
     email: Mapped[str] = mapped_column(CITEXT, unique=True)
     full_name: Mapped[str] = mapped_column(Text)
-    role: Mapped[UserRole] = mapped_column(_enum(UserRole, "user_role"), default=UserRole.OPERATOR)
+    role: Mapped[UserRole] = mapped_column(_enum(UserRole, "user_role"), default=UserRole.SALES)
+    sales_agent_id: Mapped[int | None] = mapped_column(ForeignKey("sales_agents.id", ondelete="SET NULL"), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=NOW)
 

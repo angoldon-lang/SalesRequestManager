@@ -8,10 +8,17 @@ Gestione delle richieste commerciali verso vendor/supplier, integrata con Micros
 - **M365:** Microsoft Graph (invio, lettura mailbox, reply-all) — vedi [docs/m365-setup.md](docs/m365-setup.md)
 - **AI:** Anthropic Claude con tool use forzato; prompt in `backend/app/services/llm_parser.py`
 
+## Ruoli
+- **Admin / Direzione Sales:** vede tutto e configura.
+- **Backoffice:** vede e gestisce tutto, non configura.
+- **Sales:** vede solo le proprie richieste.
+
+Dettaglio permessi e collegamento utente→agente: [docs/ruoli.md](docs/ruoli.md).
+
 ## Funzioni
 | Sprint | Contenuto |
 |---|---|
-| 1 | Schema DB, anagrafiche vendor/supplier/agenti + mapping, configurazione globale, auth Entra ID (ruoli ADMIN/OPERATOR) |
+| 1 | Schema DB, anagrafiche vendor/supplier/agenti + mapping, configurazione globale, auth Entra ID, **ruoli a 3 livelli** (vedi [docs/ruoli.md](docs/ruoli.md)) |
 | 2 | Form richiesta con ramo **DR** dinamico (Cliente finale, Valore stimato, Chiusura prevista obbligatori), invio via Graph, audit |
 | 3 | Worker inbound + LLM → bozze, coda di revisione |
 | 4 | Reply tracker, reminder automatici (giorni lavorativi IT, max solleciti, escalation), dashboard |
@@ -38,6 +45,8 @@ AUTH_DISABLED=true GRAPH_MODE=dry-run uvicorn app.main:app --reload     # API su
 cd frontend && npm install && npm run dev                                # UI su :5173
 scripts/seed_demo.sh                                                     # dati demo
 ```
+In sviluppo il ruolo dipende dal prefisso dell'utente (`X-Dev-User`): `back*` = Backoffice, `sales*` = Sales, altrimenti Admin; il selettore in basso a sinistra nella UI li alterna. Un Sales viene collegato all'agente con la stessa email.
+
 `AUTH_DISABLED` e `GRAPH_MODE=dry-run` evitano login e invii reali (le mail vengono solo loggate). **Mai in produzione.**
 
 ## Test
@@ -45,7 +54,7 @@ scripts/seed_demo.sh                                                     # dati 
 cd backend && TEST_DATABASE_URL=postgresql+psycopg://postgres@localhost/srm_test pytest -q   # DB *_test
 cd frontend && npm run build                                                                  # type-check + build
 ```
-I test backend usano un Graph e un LLM finti: coprono regole DR, destinatari/CC, macchina a stati, reminder (weekend, max, fallimenti, risposta vendor), inbound (idempotenza, review, errori), dashboard e RBAC.
+I test backend usano un Graph e un LLM finti: coprono regole DR, destinatari/CC, macchina a stati, reminder (weekend, max, fallimenti, risposta vendor), inbound (idempotenza, review, errori), dashboard e i 3 ruoli (visibilità, permessi, collegamento agente).
 E2E del form DR: `frontend/e2e/dr-form.e2e.cjs` (Playwright).
 
 ## API

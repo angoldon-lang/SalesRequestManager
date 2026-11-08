@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { del, get, patch, post, put } from "../api";
 import { Card, ErrorBox, Field } from "../components";
-import type { Agent, Config, MapRow, Supplier, User, Vendor } from "../types";
+import { Agent, Config, MapRow, ROLE_LABEL, Role, Supplier, User, Vendor } from "../types";
 
 const TABS = ["Configurazione", "Vendor", "Supplier", "Agenti", "Mapping", "Utenti"] as const;
 const emails = (s: string) => s.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
@@ -138,16 +138,28 @@ function MapTab() {
 function UsersTab() {
   const qc = useQueryClient();
   const users = useQuery({ queryKey: ["users"], queryFn: () => get<User[]>("/users") });
+  const agents = useQuery({ queryKey: ["agents"], queryFn: () => get<Agent[]>("/agents") });
   const upd = useMutation({ mutationFn: ([id, b]: [number, object]) => patch(`/users/${id}`, b), onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }) });
+  const taken = new Set(users.data?.map((u) => u.sales_agent_id).filter(Boolean));
   return (
     <Card>
-      <p className="muted">Gli utenti vengono creati al primo accesso con Microsoft (ruolo Operatore). Gli indirizzi in <code>ADMIN_EMAILS</code> diventano Admin.</p>
+      <p className="muted">
+        Gli utenti vengono creati al primo accesso con Microsoft con il ruolo <b>Sales</b> (privilegio minimo); gli indirizzi in <code>ADMIN_EMAILS</code> diventano Admin.
+        <br /><b>Admin / Direzione Sales</b>: vede tutto e configura. <b>Backoffice</b>: vede e gestisce tutto, non configura.
+        <b> Sales</b>: vede solo le proprie richieste — l'agente viene collegato in automatico se l'email coincide, altrimenti sceglilo qui.
+      </p>
       <ErrorBox e={upd.error} />
       <table>
-        <thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Attivo</th></tr></thead>
+        <thead><tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Agente collegato (Sales)</th><th>Attivo</th></tr></thead>
         <tbody>{users.data?.map((u) => (
           <tr key={u.id}><td>{u.full_name}</td><td>{u.email}</td>
-            <td><select value={u.role} onChange={(e) => upd.mutate([u.id, { role: e.target.value }])} style={{ width: "auto" }}><option>ADMIN</option><option>OPERATOR</option></select></td>
+            <td><select value={u.role} onChange={(e) => upd.mutate([u.id, { role: e.target.value }])} style={{ width: "auto" }}>
+              {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select></td>
+            <td>{u.role === "SALES" ? (
+              <select value={u.sales_agent_id ?? ""} onChange={(e) => upd.mutate([u.id, { sales_agent_id: e.target.value ? Number(e.target.value) : null }])} style={{ width: "auto" }}>
+                <option value="">— non collegato —</option>
+                {agents.data?.filter((a) => a.id === u.sales_agent_id || !taken.has(a.id)).map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+              </select>) : <span className="muted">tutte</span>}</td>
             <td><input type="checkbox" style={{ width: "auto" }} checked={u.is_active} onChange={(e) => upd.mutate([u.id, { is_active: e.target.checked }])} /></td></tr>
         ))}</tbody>
       </table>

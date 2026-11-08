@@ -10,6 +10,7 @@ from app.db import get_db
 from app.models import (
     AppUser, Request, RequestEvent, RequestSource, RequestStatus, RequestType, UserRole,
 )
+from app.access import can_see, is_staff, request_scope
 from app.security import current_user
 from app.services import request_service as svc
 from app.services.graph_client import get_graph
@@ -34,9 +35,9 @@ def out(r: Request) -> s.RequestOut:
     return o
 
 
-def load(db: Session, rid: int) -> Request:
+def load(db: Session, rid: int, user: AppUser) -> Request:
     r = db.get(Request, rid)
-    if not r:
+    if not r or not can_see(user, r):   # 404 anche se esiste: non rivelare richieste altrui
         raise HTTPException(404, "Richiesta non trovata")
     return r
 
@@ -56,9 +57,12 @@ def list_requests(
     date_from: date | None = Query(None, alias="from"), date_to: date | None = Query(None, alias="to"),
     q: str | None = None, needs_review: bool | None = None,
     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db), user: AppUser = Depends(current_user),
 ):
     cond = []
+    scope = request_scope(user)
+    if scope is not None:
+        cond.append(scope)
     if status: cond.append(Request.status == status)
     if type: cond.append(Request.request_type == type)
     if vendor_id: cond.append(Request.vendor_id == vendor_id)
@@ -80,6 +84,10 @@ def list_requests(
 def create_request(body: s.RequestCreate, db: Session = Depends(get_db),
                    user: AppUser = Depends(current_user)):
     data = body.model_dump(exclude_none=True)
+    if not is_staff(user):                      # il SALES crea sempre a nome proprio
+        if user.sales_agent_id is None:
+            raise HTTPException(403, "Il tuo utente non è collegato a un agente commerciale: contatta l'admin")
+        data["sales_agent_id"] = user.sales_agent_id
     r = Request(**data, status=RequestStatus.DRAFT, source=RequestSource.MANUAL, created_by=user.id)
     db.add(r)
     commit(db)
@@ -89,8 +97,8 @@ def create_request(body: s.RequestCreate, db: Session = Depends(get_db),
 
 
 @router.get("/{rid}", response_model=s.RequestOut)
-def get_request(rid: int, db: Session = Depends(get_db)):
-    return out(load(db, rid))
+def get_request(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
+    return out(load(db, rid, user))
 
 
 EDITABLE_WHEN_SENT = {"end_customer_name", "estimated_deal_value", "expected_close_date",
@@ -101,8 +109,10 @@ EDITABLE_WHEN_SENT = {"end_customer_name", "estimated_deal_value", "expected_clo
 @router.patch("/{rid}", response_model=s.RequestOut)
 def patch_request(rid: int, body: s.RequestPatch, db: Session = Depends(get_db),
                   user: AppUser = Depends(current_user)):
-    r = load(db, rid)
+    r = load(db, rid, user)
     data = body.model_dump(exclude_unset=True)
+    if not is_staff(user) and data.get("sales_agent_id", user.sales_agent_id) != user.sales_agent_id:
+        raise HTTPException(403, "Non puoi assegnare la richiesta ad un altro agente")
     if r.status == RequestStatus.CLOSED:
         raise HTTPException(409, "Richiesta chiusa: riaprila per modificarla")
     if r.status != RequestStatus.DRAFT:
@@ -125,8 +135,8 @@ def patch_request(rid: int, body: s.RequestPatch, db: Session = Depends(get_db),
 
 
 @router.delete("/{rid}", status_code=204)
-def delete_request(rid: int, db: Session = Depends(get_db)):
-    r = load(db, rid)
+def delete_request(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
+    r = load(db, rid, user)
     if r.status != RequestStatus.DRAFT:
         raise HTTPException(409, "Solo le bozze si possono eliminare")
     db.delete(r)
@@ -135,7 +145,7 @@ def delete_request(rid: int, db: Session = Depends(get_db)):
 
 @router.post("/{rid}/send", response_model=s.RequestOut)
 def send(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
-    r = load(db, rid)
+    r = load(db, rid, user)
     svc.send_request(db, graph(), r, user.email)
     commit(db)
     return out(r)
@@ -143,7 +153,7 @@ def send(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(curren
 
 @router.post("/{rid}/remind", response_model=s.RequestOut)
 def remind(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
-    r = load(db, rid)
+    r = load(db, rid, user)
     if r.status not in (RequestStatus.SENT, RequestStatus.REMINDED):
         raise HTTPException(409, "Reminder possibile solo su richieste inviate")
     send_reminder(db, graph(), svc.get_config(db), r, actor=user.email)
@@ -154,7 +164,9 @@ def remind(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(curr
 @router.post("/{rid}/close", response_model=s.RequestOut)
 def close(rid: int, body: s.CloseIn, db: Session = Depends(get_db),
           user: AppUser = Depends(current_user)):
-    r = load(db, rid)
+    if not is_staff(user):
+        raise HTTPException(403, "La chiusura è riservata a Backoffice e Admin")
+    r = load(db, rid, user)
     svc.close_request(db, r, body.reason, user.email, body.vendor_dr_reference,
                       body.dr_approved_at, body.dr_expires_at)
     commit(db)
@@ -165,14 +177,14 @@ def close(rid: int, body: s.CloseIn, db: Session = Depends(get_db),
 def reopen(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
     if user.role != UserRole.ADMIN:
         raise HTTPException(403, "Solo ADMIN può riaprire")
-    r = load(db, rid)
+    r = load(db, rid, user)
     svc.reopen_request(db, r, user.email)
     commit(db)
     return out(r)
 
 
 @router.get("/{rid}/events", response_model=list[s.EventOut])
-def events(rid: int, db: Session = Depends(get_db)):
-    load(db, rid)
+def events(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
+    load(db, rid, user)
     return db.scalars(select(RequestEvent).where(RequestEvent.request_id == rid)
                       .order_by(RequestEvent.created_at, RequestEvent.id)).all()

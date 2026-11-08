@@ -7,24 +7,26 @@ CREATE TYPE request_type   AS ENUM ('NUOVO', 'DR');
 CREATE TYPE request_status AS ENUM ('DRAFT', 'SENT', 'REMINDED', 'CLOSED');
 CREATE TYPE close_reason   AS ENUM ('WON', 'LOST', 'APPROVED', 'REJECTED', 'CANCELLED', 'NO_RESPONSE');
 CREATE TYPE request_source AS ENUM ('MANUAL', 'EMAIL_AI');
-CREATE TYPE user_role      AS ENUM ('ADMIN', 'OPERATOR');
+CREATE TYPE user_role      AS ENUM ('ADMIN', 'BACKOFFICE', 'SALES');
 CREATE TYPE inbound_status AS ENUM ('NEW', 'PARSED', 'NEEDS_REVIEW', 'ERROR', 'IGNORED');
-
-CREATE TABLE app_users (
-    id           BIGSERIAL PRIMARY KEY,
-    entra_oid    UUID UNIQUE,
-    email        CITEXT NOT NULL UNIQUE,
-    full_name    TEXT NOT NULL,
-    role         user_role NOT NULL DEFAULT 'OPERATOR',
-    is_active    BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 CREATE TABLE sales_agents (
     id           BIGSERIAL PRIMARY KEY,
     full_name    TEXT NOT NULL,
     email        CITEXT NOT NULL UNIQUE,
     is_active    BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE app_users (
+    id           BIGSERIAL PRIMARY KEY,
+    entra_oid    UUID UNIQUE,
+    email        CITEXT NOT NULL UNIQUE,
+    full_name    TEXT NOT NULL,
+    role         user_role NOT NULL DEFAULT 'SALES',
+    -- Per i SALES: l'agente commerciale di cui vede le richieste
+    sales_agent_id BIGINT UNIQUE REFERENCES sales_agents(id) ON DELETE SET NULL,
+    is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE vendors (
@@ -153,6 +155,8 @@ CREATE TABLE requests (
 );
 CREATE INDEX ix_requests_status     ON requests(status);
 CREATE INDEX ix_requests_vendor     ON requests(vendor_id);
+CREATE INDEX ix_requests_agent      ON requests(sales_agent_id);
+CREATE INDEX ix_requests_creator    ON requests(created_by);
 CREATE INDEX ix_requests_created_at ON requests(created_at);
 CREATE INDEX ix_requests_conv       ON requests(graph_conversation_id);
 CREATE INDEX ix_requests_reminder_scan

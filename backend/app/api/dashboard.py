@@ -5,6 +5,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.access import can_see, scope_sql
+from app.models import AppUser
 from app.security import current_user
 from app.services.reminder_service import to_escalate
 
@@ -19,8 +21,10 @@ def _range(date_from: date | None, date_to: date | None):
 
 @router.get("/summary")
 def summary(date_from: date | None = Query(None, alias="from"), date_to: date | None = Query(None, alias="to"),
-            db: Session = Depends(get_db)):
+            db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
     p = _range(date_from, date_to)
+    sc, sp = scope_sql(user)
+    p.update(sp)
     k = db.execute(text("""
         SELECT count(*) FILTER (WHERE status <> 'DRAFT')                         AS totale,
                count(*) FILTER (WHERE status <> 'DRAFT' AND request_type='NUOVO') AS nuovo,
@@ -30,8 +34,7 @@ def summary(date_from: date | None = Query(None, alias="from"), date_to: date | 
                count(*) FILTER (WHERE status = 'DRAFT')                           AS bozze,
                count(*) FILTER (WHERE status = 'DRAFT' AND needs_review)          AS bozze_da_rivedere,
                avg(extract(epoch FROM first_vendor_reply_at - sent_at)/3600)      AS ore_risposta_media
-        FROM requests WHERE created_at >= :f AND created_at < :t
-    """), p).mappings().one()
+        FROM requests WHERE created_at >= :f AND created_at < :t""" + sc), p).mappings().one()
     totale = k["totale"] or 0
     inviate = (k["aperte"] or 0) + (k["chiuse"] or 0)
     return {
@@ -49,21 +52,25 @@ def summary(date_from: date | None = Query(None, alias="from"), date_to: date | 
 @router.get("/timeseries")
 def timeseries(granularity: str = Query("week", pattern="^(day|week|month)$"),
                date_from: date | None = Query(None, alias="from"), date_to: date | None = Query(None, alias="to"),
-               db: Session = Depends(get_db)):
+               db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
     p = _range(date_from, date_to)
+    sc, sp = scope_sql(user)
+    p.update(sp)
     rows = db.execute(text(f"""
         SELECT date_trunc('{granularity}', created_at)::date AS period,
                count(*) FILTER (WHERE request_type='NUOVO') AS nuovo,
                count(*) FILTER (WHERE request_type='DR')    AS dr
-        FROM requests WHERE status <> 'DRAFT' AND created_at >= :f AND created_at < :t
+        FROM requests WHERE status <> 'DRAFT' AND created_at >= :f AND created_at < :t{sc}
         GROUP BY 1 ORDER BY 1"""), p).mappings().all()
     return [{"period": r["period"].isoformat(), "nuovo": r["nuovo"], "dr": r["dr"]} for r in rows]
 
 
 @router.get("/vendors")
 def vendors(date_from: date | None = Query(None, alias="from"), date_to: date | None = Query(None, alias="to"),
-            db: Session = Depends(get_db)):
+            db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
     p = _range(date_from, date_to)
+    sc, sp = scope_sql(user, "r")
+    p.update(sp)
     rows = db.execute(text("""
         SELECT v.name, count(*) AS richieste,
                count(r.first_vendor_reply_at) AS risposte,
@@ -71,13 +78,13 @@ def vendors(date_from: date | None = Query(None, alias="from"), date_to: date | 
                round((percentile_cont(0.5) WITHIN GROUP
                      (ORDER BY extract(epoch FROM r.first_vendor_reply_at - r.sent_at)/3600))::numeric, 1) AS ore_mediana
         FROM requests r JOIN vendors v ON v.id = r.vendor_id
-        WHERE r.status <> 'DRAFT' AND r.sent_at >= :f AND r.sent_at < :t
+        WHERE r.status <> 'DRAFT' AND r.sent_at >= :f AND r.sent_at < :t""" + sc + """
         GROUP BY v.name ORDER BY richieste DESC"""), p).mappings().all()
     return [{**r, "ore_medie": float(r["ore_medie"]) if r["ore_medie"] is not None else None,
              "ore_mediana": float(r["ore_mediana"]) if r["ore_mediana"] is not None else None} for r in rows]
 
 
 @router.get("/escalations")
-def escalations(db: Session = Depends(get_db)):
+def escalations(db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
     return [{"id": r.id, "code": r.code, "subject": r.subject, "vendor": r.vendor.name if r.vendor else None,
-             "sent_at": r.sent_at, "reminder_count": r.reminder_count} for r in to_escalate(db)]
+             "sent_at": r.sent_at, "reminder_count": r.reminder_count} for r in to_escalate(db) if can_see(user, r)]

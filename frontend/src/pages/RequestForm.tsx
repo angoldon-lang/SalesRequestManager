@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ApiError, get, patch, post } from "../api";
 import { Card, ErrorBox, Field } from "../components";
-import type { Agent, MapRow, Req, Supplier, Vendor } from "../types";
+import { Agent, MapRow, Req, Supplier, User, Vendor, isStaff } from "../types";
 
 const num = (v: unknown) => (v === "" || v === null || v === undefined ? undefined : Number(String(v).replace(",", ".")));
 const opt = (v: unknown) => (v === "" ? undefined : v);
@@ -45,6 +45,7 @@ export default function RequestForm() {
   const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => get<Supplier[]>("/suppliers?active_only=true") });
   const agents = useQuery({ queryKey: ["agents"], queryFn: () => get<Agent[]>("/agents?active_only=true") });
   const maps = useQuery({ queryKey: ["map"], queryFn: () => get<MapRow[]>("/vendor-supplier-map") });
+  const me = useQuery({ queryKey: ["me"], queryFn: () => get<User>("/me") });
   const existing = useQuery({ queryKey: ["request", id], enabled: !!id, queryFn: () => get<Req>(`/requests/${id}`) });
 
   const { register, handleSubmit, watch, reset, getValues, setValue, setError, trigger, formState: { errors } } =
@@ -53,6 +54,12 @@ export default function RequestForm() {
   useEffect(() => {
     if (existing.data) reset({ ...EMPTY, ...Object.fromEntries(Object.entries(existing.data).map(([k, v]) => [k, v ?? ""])) });
   }, [existing.data, reset]);
+
+  // Un SALES crea sempre a nome proprio: l'agente è fisso (il backend lo impone comunque)
+  const salesOnly = me.data ? !isStaff(me.data.role) : false;
+  useEffect(() => {
+    if (salesOnly && me.data?.sales_agent_id && !id) setValue("sales_agent_id", me.data.sales_agent_id);
+  }, [salesOnly, me.data, id, setValue]);
 
   const type = watch("request_type");
   const vendorId = Number(watch("vendor_id")) || 0;
@@ -125,7 +132,7 @@ export default function RequestForm() {
                 </select>
               </Field>
               <Field label="Agente commerciale (in CC)" required error={err("sales_agent_id")}>
-                <select {...register("sales_agent_id")}>
+                <select {...register("sales_agent_id")} disabled={salesOnly && !!me.data?.sales_agent_id}>
                   <option value="">—</option>
                   {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                 </select>

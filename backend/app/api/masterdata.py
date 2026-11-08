@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app import schemas as s
 from app.db import get_db
 from app.models import AppUser, SalesAgent, Supplier, Vendor, VendorSupplierMap
+from app.access import is_staff
 from app.security import current_user, require_admin
 
 router = APIRouter(dependencies=[Depends(current_user)])
@@ -24,10 +25,13 @@ def _commit(db: Session):
 
 def crud(path: str, model: Type, in_schema, out_schema):
     @router.get(f"/{path}", response_model=list[out_schema], name=f"list_{path}")
-    def list_(active_only: bool = False, db: Session = Depends(get_db)):
+    def list_(active_only: bool = False, db: Session = Depends(get_db),
+              user: AppUser = Depends(current_user)):
         q = select(model).order_by(model.id)
         if active_only:
             q = q.where(model.is_active)
+        if model is SalesAgent and not is_staff(user):   # un SALES vede solo se stesso
+            q = q.where(SalesAgent.id == user.sales_agent_id)
         return db.scalars(q).all()
 
     @router.post(f"/{path}", response_model=out_schema, status_code=201, name=f"create_{path}",
@@ -56,12 +60,21 @@ crud("agents", SalesAgent, s.AgentIn, s.AgentOut)
 
 
 # ----- mapping vendor <-> supplier -----
+def _redact(m: VendorSupplierMap, user: AppUser) -> s.MapOut:
+    """Il SALES sa quali supplier sono mappati, ma non gli indirizzi dei vendor."""
+    out = s.MapOut.model_validate(m)
+    if not is_staff(user):
+        out.to_emails, out.cc_emails = [], []
+    return out
+
+
 @router.get("/vendor-supplier-map", response_model=list[s.MapOut])
-def list_map(vendor_id: int | None = None, db: Session = Depends(get_db)):
+def list_map(vendor_id: int | None = None, db: Session = Depends(get_db),
+             user: AppUser = Depends(current_user)):
     q = select(VendorSupplierMap).order_by(VendorSupplierMap.id)
     if vendor_id:
         q = q.where(VendorSupplierMap.vendor_id == vendor_id)
-    return db.scalars(q).all()
+    return [_redact(m, user) for m in db.scalars(q).all()]
 
 
 @router.put("/vendor-supplier-map", response_model=s.MapOut, dependencies=[Depends(require_admin)])
@@ -91,8 +104,9 @@ def delete_map(map_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/vendors/{vendor_id}/suppliers", response_model=list[s.MapOut])
-def vendor_suppliers(vendor_id: int, db: Session = Depends(get_db)):
-    return db.scalars(select(VendorSupplierMap).where(VendorSupplierMap.vendor_id == vendor_id)).all()
+def vendor_suppliers(vendor_id: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
+    rows = db.scalars(select(VendorSupplierMap).where(VendorSupplierMap.vendor_id == vendor_id)).all()
+    return [_redact(m, user) for m in rows]
 
 
 # ----- utenti -----
@@ -109,7 +123,12 @@ def patch_user(user_id: int, body: s.UserPatch, db: Session = Depends(get_db),
         raise HTTPException(404)
     if u.id == me.id:
         raise HTTPException(409, "Non puoi modificare il tuo utente")
-    for k, v in body.model_dump(exclude_none=True).items():
+    for k, v in body.model_dump(exclude_unset=True).items():
+        if k in ("role", "is_active") and v is None:
+            continue
         setattr(u, k, v)
+    if u.sales_agent_id is not None and not db.get(SalesAgent, u.sales_agent_id):
+        db.rollback()
+        raise HTTPException(422, "Agente inesistente")
     _commit(db)
     return u

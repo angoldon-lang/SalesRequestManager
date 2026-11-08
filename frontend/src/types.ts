@@ -27,7 +27,12 @@ export interface Config {
   sender_email: string; inbound_mailbox: string; inbound_processed_folder: string; default_cc: string[];
   reminder_after_days: number; reminder_max_count: number; reminder_business_days: boolean; llm_model: string;
 }
-export interface User { id: number; email: string; full_name: string; role: "ADMIN" | "OPERATOR"; is_active: boolean }
+export type Role = "ADMIN" | "BACKOFFICE" | "SALES";
+export interface User { id: number; email: string; full_name: string; role: Role; is_active: boolean; sales_agent_id: number | null }
+export const ROLE_LABEL: Record<Role, string> = {
+  ADMIN: "Admin / Direzione Sales", BACKOFFICE: "Backoffice", SALES: "Sales",
+};
+export const isStaff = (r?: Role) => r === "ADMIN" || r === "BACKOFFICE";
 export interface Inbound {
   id: number; from_email: string; subject: string | null; body_text: string | null; received_at: string;
   status: string; llm_raw_output: Record<string, unknown> | null; error_message: string | null;

@@ -90,22 +90,22 @@ def test_close_reopen_and_rbac(client, seed):
     assert client.post(f"{API}/requests/{rid}/close", json={"reason": "APPROVED"},
                        headers=H()).status_code == 409           # bozza non chiudibile
     client.post(f"{API}/requests/{rid}/send", headers=H())
-    res = client.post(f"{API}/requests/{rid}/close", headers=H("op1@az.it"), json={
+    res = client.post(f"{API}/requests/{rid}/close", headers=H("back1@az.it"), json={
         "reason": "APPROVED", "vendor_dr_reference": "DR-99",
         "dr_approved_at": "2026-11-10", "dr_expires_at": "2027-05-10"})
     assert res.status_code == 200 and res.json()["status"] == "CLOSED"
     assert res.json()["vendor_dr_reference"] == "DR-99"
     # l'operatore non può riaprire, l'admin sì
-    assert client.post(f"{API}/requests/{rid}/reopen", headers=H("op1@az.it")).status_code == 403
+    assert client.post(f"{API}/requests/{rid}/reopen", headers=H("back1@az.it")).status_code == 403
     assert client.post(f"{API}/requests/{rid}/reopen", headers=H()).json()["status"] == "SENT"
 
 
 def test_operator_cannot_write_config(client):
-    client.get(f"{API}/me", headers=H("op1@az.it"))
-    assert client.get(f"{API}/me", headers=H("op1@az.it")).json()["role"] == "OPERATOR"
-    cfg = client.get(f"{API}/config", headers=H("op1@az.it")).json()
+    client.get(f"{API}/me", headers=H("back1@az.it"))
+    assert client.get(f"{API}/me", headers=H("back1@az.it")).json()["role"] == "BACKOFFICE"
+    cfg = client.get(f"{API}/config", headers=H("back1@az.it")).json()
     cfg.pop("updated_at")
-    assert client.put(f"{API}/config", json=cfg, headers=H("op1@az.it")).status_code == 403
+    assert client.put(f"{API}/config", json=cfg, headers=H("back1@az.it")).status_code == 403
     cfg["reminder_after_days"] = 5
     assert client.put(f"{API}/config", json=cfg, headers=H()).json()["reminder_after_days"] == 5
 
