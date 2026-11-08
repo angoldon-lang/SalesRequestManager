@@ -3,11 +3,9 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { del, get, post } from "../api";
 import { Badge, Card, ErrorBox, Field, TypeTag, fmtDate, fmtDateTime, money } from "../components";
-import { CloseReason, EventRow, REASON_LABEL, Req, Role, isStaff } from "../types";
+import { CloseReason, EventRow, REASON_LABEL, Req } from "../types";
 
-export default function RequestDetail({ role }: { role?: Role }) {
-  const isAdmin = role === "ADMIN";
-  const staff = isStaff(role);
+export default function RequestDetail() {
   const id = useParams().id!;
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -35,9 +33,9 @@ export default function RequestDetail({ role }: { role?: Role }) {
           {open && <>
             <Link className="btn" to={`/requests/${x.id}/edit`}>Aggiorna dati DR</Link>
             <button disabled={act.isPending} onClick={() => confirm("Inviare un sollecito ora?") && act.mutate(["remind"])}>Sollecita ora</button>
-            {staff && <button className="primary" onClick={() => setClosing(true)}>Chiudi</button>}
+            <button className="primary" onClick={() => setClosing(true)}>Chiudi</button>
           </>}
-          {x.status === "CLOSED" && isAdmin && <button onClick={() => act.mutate(["reopen"])}>Riapri</button>}
+          {x.status === "CLOSED" && <button onClick={() => act.mutate(["reopen"])}>Riapri</button>}
         </div>
       </div>
       <ErrorBox e={act.error ?? remove.error} />

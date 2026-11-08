@@ -164,8 +164,6 @@ def remind(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(curr
 @router.post("/{rid}/close", response_model=s.RequestOut)
 def close(rid: int, body: s.CloseIn, db: Session = Depends(get_db),
           user: AppUser = Depends(current_user)):
-    if not is_staff(user):
-        raise HTTPException(403, "La chiusura è riservata a Backoffice e Admin")
     r = load(db, rid, user)
     svc.close_request(db, r, body.reason, user.email, body.vendor_dr_reference,
                       body.dr_approved_at, body.dr_expires_at)
@@ -175,8 +173,6 @@ def close(rid: int, body: s.CloseIn, db: Session = Depends(get_db),
 
 @router.post("/{rid}/reopen", response_model=s.RequestOut)
 def reopen(rid: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(403, "Solo ADMIN può riaprire")
     r = load(db, rid, user)
     svc.reopen_request(db, r, user.email)
     commit(db)

@@ -95,9 +95,7 @@ def test_close_reopen_and_rbac(client, seed):
         "dr_approved_at": "2026-11-10", "dr_expires_at": "2027-05-10"})
     assert res.status_code == 200 and res.json()["status"] == "CLOSED"
     assert res.json()["vendor_dr_reference"] == "DR-99"
-    # l'operatore non può riaprire, l'admin sì
-    assert client.post(f"{API}/requests/{rid}/reopen", headers=H("back1@az.it")).status_code == 403
-    assert client.post(f"{API}/requests/{rid}/reopen", headers=H()).json()["status"] == "SENT"
+    assert client.post(f"{API}/requests/{rid}/reopen", headers=H("back1@az.it")).json()["status"] == "SENT"
 
 
 def test_operator_cannot_write_config(client):

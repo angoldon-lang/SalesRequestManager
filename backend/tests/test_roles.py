@@ -66,14 +66,23 @@ def test_sales_create_is_forced_to_own_agent(client, team, seed):
     assert res.status_code == 403
 
 
-def test_sales_can_send_and_remind_own_but_not_close(client, team):
+def test_sales_can_send_remind_close_and_reopen_own(client, team):
     rid = team["r1"]["id"]
     assert client.post(f"{API}/requests/{rid}/send", headers=S1).status_code == 200
     assert client.post(f"{API}/requests/{rid}/remind", headers=S1).status_code == 200
-    assert client.post(f"{API}/requests/{rid}/close", json={"reason": "WON"}, headers=S1).status_code == 403
-    assert client.post(f"{API}/requests/{rid}/close", json={"reason": "WON"}, headers=BACK).status_code == 200
-    assert client.post(f"{API}/requests/{rid}/reopen", headers=BACK).status_code == 403   # solo admin
-    assert client.post(f"{API}/requests/{rid}/reopen", headers=ADMIN).status_code == 200
+    closed = client.post(f"{API}/requests/{rid}/close", json={"reason": "WON"}, headers=S1)
+    assert closed.status_code == 200 and closed.json()["status"] == "CLOSED"
+    assert client.post(f"{API}/requests/{rid}/reopen", headers=S1).json()["status"] == "REMINDED"
+    # ... ma solo le proprie: sulle altrui 404
+    other = team["r2"]["id"]
+    client.post(f"{API}/requests/{other}/send", headers=S2)
+    assert client.post(f"{API}/requests/{other}/close", json={"reason": "WON"}, headers=S1).status_code == 404
+    assert client.post(f"{API}/requests/{other}/reopen", headers=S1).status_code == 404
+    # backoffice e admin chiudono/riaprono qualsiasi richiesta
+    assert client.post(f"{API}/requests/{other}/close", json={"reason": "LOST"}, headers=BACK).status_code == 200
+    assert client.post(f"{API}/requests/{other}/reopen", headers=BACK).status_code == 200
+    assert client.post(f"{API}/requests/{other}/close", json={"reason": "LOST"}, headers=ADMIN).status_code == 200
+    assert client.post(f"{API}/requests/{other}/reopen", headers=ADMIN).status_code == 200
 
 
 def test_sales_blocked_from_staff_areas(client, team):

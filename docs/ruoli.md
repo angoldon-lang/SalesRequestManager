@@ -4,8 +4,7 @@
 |---|:---:|:---:|:---:|
 | Vede le richieste | tutte | tutte | **solo le sue** |
 | Crea / modifica bozze, invia, sollecita | ✅ | ✅ (tutte) | ✅ (solo sue, sempre a nome proprio) |
-| Chiude le richieste | ✅ | ✅ | ❌ |
-| Riapre richieste chiuse | ✅ | ❌ | ❌ |
+| Chiude e riapre le richieste | ✅ (tutte) | ✅ (tutte) | ✅ (solo sue) |
 | Dashboard | globale | globale | solo le sue |
 | Coda bozze AI (email in ingresso) | ✅ | ✅ | ❌ |
 | Configurazione (mittente, CC, reminder, LLM) | ✅ scrive | 👁 sola lettura | ❌ |

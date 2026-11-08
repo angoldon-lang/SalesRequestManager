@@ -49,7 +49,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/requests" element={<Requests />} />
           <Route path="/requests/new" element={<RequestForm />} />
-          <Route path="/requests/:id" element={<RequestDetail role={role} />} />
+          <Route path="/requests/:id" element={<RequestDetail />} />
           <Route path="/requests/:id/edit" element={<RequestForm />} />
           <Route path="/inbound" element={me.isLoading ? null : staff ? <InboundReview /> : <Navigate to="/" />} />
           <Route path="/admin" element={me.isLoading ? null : isAdmin ? <Admin /> : <Navigate to="/" />} />
