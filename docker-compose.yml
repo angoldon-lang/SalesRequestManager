@@ -1,37 +1,66 @@
+# SRM - pacchetto unico: database + API + worker + web.
+# Isolamento pensato per VM con altre installazioni:
+#  - NESSUNA porta del DB/API è pubblicata sull'host (si parlano solo sulla rete interna del progetto)
+#  - l'unica porta pubblicata è la web: WEB_PORT (default 8088), sull'interfaccia WEB_BIND
+#  - rete e volume dedicati, prefissati dal nome progetto (srm_default, srm_pgdata)
+name: srm
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+psycopg://srm:${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}@db:5432/srm
+  TZ: Europe/Rome
+
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: srm
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?imposta POSTGRES_PASSWORD in .env}
       POSTGRES_DB: srm
+      TZ: Europe/Rome
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U srm"]
+      test: ["CMD-SHELL", "pg_isready -U srm -d srm"]
       interval: 5s
-      retries: 10
+      timeout: 3s
+      retries: 20
+    # nessun "ports:" -> non confligge con altri PostgreSQL della VM (5432/5433...)
 
   api:
     build: ./backend
+    restart: unless-stopped
     env_file: .env
-    depends_on: { db: { condition: service_healthy } }
+    environment: *app-env
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:       # healthy solo dopo le migrazioni (alembic parte prima di uvicorn)
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     expose: ["8000"]
 
-  worker:            # inbound AI + reply tracker + reminder (UN solo worker)
+  worker:              # inbound AI + reply tracker + reminder: UN solo worker
     build: ./backend
     command: python -m app.workers.scheduler
-    env_file: .env
-    depends_on: [api]
     restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    depends_on:
+      api: { condition: service_healthy }
 
   web:
     build:
       context: ./frontend
       args:
-        VITE_AZ_CLIENT_ID: ${AZ_CLIENT_ID}
-        VITE_AZ_TENANT_ID: ${AZ_TENANT_ID}
-    ports: ["8080:80"]
-    depends_on: [api]
+        VITE_AZ_CLIENT_ID: ${AZ_CLIENT_ID:-}
+        VITE_AZ_TENANT_ID: ${AZ_TENANT_ID:-}
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8088}:80"
+    depends_on:
+      api: { condition: service_healthy }
 
 volumes:
   pgdata:

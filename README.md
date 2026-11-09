@@ -26,13 +26,13 @@ Dettaglio permessi e collegamento utente→agente: [docs/ruoli.md](docs/ruoli.md
 
 Regole DR: validazione su 3 livelli (zod nel form → Pydantic/API → `CHECK` nel DB). La **bozza** può essere incompleta, l'**invio** no.
 
-## Avvio in produzione (Docker)
+## Installazione (Docker, tutto in container)
 ```bash
-cp .env.example .env     # compila i valori
-docker compose up -d --build
-# UI su http://localhost:8080 (metti un reverse proxy TLS davanti)
+./install.sh        # DB + API + worker + web; sceglie da solo una porta web libera (default 8088)
 ```
-Le migrazioni (`alembic upgrade head`) partono all'avvio dell'API. **Esegui un solo worker.**
+Il database vive in un container: nessuna porta del DB/API è esposta sull'host, quindi nessun conflitto con altri
+PostgreSQL della VM. Guida completa (porta, reverse proxy, Entra, backup): [docs/docker.md](docs/docker.md).
+Le migrazioni partono all'avvio dell'API. **Esegui un solo worker.**
 
 ## Sviluppo locale (senza Azure)
 ```bash
@@ -67,5 +67,5 @@ Documentazione interattiva: `GET /docs`. Prefisso `/api/v1`: `requests`, `vendor
 - Output LLM trattato come non fidato (normalizzazione, fuzzy match su anagrafiche, `needs_review`).
 - Audit completo in `request_events`; vincoli di integrità nel DB.
 
-## Backup consigliato
-`pg_dump` giornaliero del DB (`docker compose exec db pg_dump -U srm srm > srm.sql`).
+## Backup
+`scripts/backup.sh` (gzip, ultimi 14 giorni) e `scripts/restore.sh` — vedi docs/docker.md.
