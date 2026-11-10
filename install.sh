@@ -2,18 +2,26 @@
 # Installer SRM (tutto in container). Uso:
 #   ./install.sh                 # interattivo, sceglie da solo una porta web libera
 #   ./install.sh --port 9090     # porta precisa (errore se occupata)
+#   ./install.sh --https --host srm.azienda.it   # rete interna con HTTPS (CA + certificato generati)
+#   ./install.sh --https --host srm.azienda.it --cert c.pem --key k.pem   # certificato aziendale
+#   ./install.sh --bind 10.0.0.5 # ascolta solo su quell'IP della VM (consigliato)
 #   ./install.sh --demo          # prova senza Microsoft: nessun login, solo 127.0.0.1
-#   ./install.sh --no-start      # prepara solo .env e controlla la porta
+#   ./install.sh --no-start      # prepara solo .env/certificati e controlla la porta
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PORT_ARG=""; DEMO=0; START=1
+PORT_ARG=""; DEMO=0; START=1; HTTPS=0; HOST_ARG=""; CERT_ARG=""; KEY_ARG=""; BIND_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --port) PORT_ARG="${2:?manca il numero di porta}"; shift 2 ;;
     --demo) DEMO=1; shift ;;
+    --https) HTTPS=1; shift ;;
+    --host) HOST_ARG="${2:?manca il nome host}"; shift 2 ;;
+    --cert) CERT_ARG="${2:?manca il file certificato}"; shift 2 ;;
+    --key) KEY_ARG="${2:?manca il file chiave}"; shift 2 ;;
+    --bind) BIND_ARG="${2:?manca indirizzo IP}"; shift 2 ;;
     --no-start) START=0; shift ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "Opzione sconosciuta: $1"; exit 1 ;;
   esac
 done
@@ -32,7 +40,7 @@ port_in_use() {   # vero se qualcosa ascolta sulla porta (qualsiasi processo o c
 set_env() {       # set_env CHIAVE VALORE  (aggiorna o aggiunge in .env)
   if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
 }
-get_env() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//'; }
+get_env() { { grep -E "^$1=" .env 2>/dev/null || true; } | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//'; }
 
 # ---- 1. prerequisiti ----
 if [ "$START" = 1 ]; then
@@ -52,12 +60,48 @@ else
   say ".env già presente: lo mantengo"
 fi
 
+# ---- 2b. HTTPS interno (il login Microsoft richiede HTTPS fuori da localhost) ----
+has_tls() { [ -f certs/tls.crt ] && [ -f certs/tls.key ]; }
+if [ -n "$CERT_ARG$KEY_ARG" ]; then HTTPS=1; fi
+if [ "$HTTPS" = 1 ]; then
+  command -v openssl >/dev/null || die "openssl non trovato (serve per i certificati)"
+  HOST="${HOST_ARG:-$(get_env WEB_HOST)}"
+  [ -n "$HOST" ] || { [ -t 0 ] && read -r -p "Nome DNS interno con cui gli utenti apriranno SRM (es. srm.azienda.it): " HOST || true; }
+  HOST="${HOST:-$(hostname -f 2>/dev/null || hostname)}"
+  mkdir -p certs
+  if [ -n "$CERT_ARG" ]; then
+    [ -f "$CERT_ARG" ] && [ -f "$KEY_ARG" ] || die "--cert e --key devono essere file esistenti"
+    [ "$(openssl x509 -in "$CERT_ARG" -noout -pubkey | openssl sha256)" = "$(openssl pkey -in "$KEY_ARG" -pubout | openssl sha256)" ] \
+      || die "La chiave non corrisponde al certificato"
+    cp "$CERT_ARG" certs/tls.crt; cp "$KEY_ARG" certs/tls.key; chmod 600 certs/tls.key
+    say "Certificato aziendale installato in certs/"
+  elif has_tls; then
+    say "Certificati già presenti in certs/: li mantengo"
+  else
+    say "Genero CA interna + certificato per: $HOST"
+    IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    SAN="DNS:$HOST"; [ -z "$IP" ] || SAN="$SAN,IP:$IP"
+    openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -keyout certs/ca.key -out certs/ca.crt \
+      -subj "/O=SRM/CN=SRM Internal CA" >/dev/null 2>&1
+    openssl req -newkey rsa:2048 -nodes -keyout certs/tls.key -out certs/tls.csr -subj "/O=SRM/CN=$HOST" >/dev/null 2>&1
+    printf 'subjectAltName=%s\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' "$SAN" > certs/san.ext
+    openssl x509 -req -in certs/tls.csr -CA certs/ca.crt -CAkey certs/ca.key -CAcreateserial \
+      -days 825 -extfile certs/san.ext -out certs/tls.crt >/dev/null 2>&1
+    rm -f certs/tls.csr certs/san.ext certs/ca.srl; chmod 600 certs/tls.key certs/ca.key
+    say "Certificato valido 825 giorni. Distribuisci certs/ca.crt ai PC (radice attendibile): vedi docs/docker.md"
+  fi
+  set_env WEB_HOST "$HOST"
+fi
+if has_tls; then SCHEME=https; else SCHEME=http; fi
+[ -z "$BIND_ARG" ] || set_env WEB_BIND "$BIND_ARG"
+
 # ---- 3. porta web ----
 if [ -n "$PORT_ARG" ]; then
   port_in_use "$PORT_ARG" && die "La porta $PORT_ARG è già occupata. Scegline un'altra con --port."
   PORT="$PORT_ARG"
 else
   PORT="$(get_env WEB_PORT)"; PORT="${PORT:-8088}"
+  [ "$SCHEME" = https ] && [ "$PORT" = 8088 ] && PORT=8443
   # Se la porta è occupata perché SRM stesso è già in esecuzione, la riuso (aggiornamento).
   if [ "$START" = 1 ] && docker compose ps -q web 2>/dev/null | grep -q .; then
     say "SRM già in esecuzione: riuso la porta $PORT"
@@ -89,17 +133,23 @@ say "Costruisco e avvio i container (la prima volta richiede qualche minuto)"
 docker compose up -d --build
 
 say "Attendo che l'applicazione risponda…"
-url="http://127.0.0.1:$PORT"
+url="$SCHEME://127.0.0.1:$PORT"
 for _ in $(seq 1 60); do
-  if curl -fsS "$url/health" >/dev/null 2>&1; then ok=1; break; fi; sleep 3
+  if curl -fskS "$url/health" >/dev/null 2>&1; then ok=1; break; fi; sleep 3
 done
 [ "${ok:-0}" = 1 ] || { docker compose ps; die "Non risponde. Vedi: docker compose logs api"; }
 
 echo
-say "SRM è attivo:  $url$( [ "$(get_env WEB_BIND)" = 127.0.0.1 ] || echo "   (dall'esterno: http://<ip-vm>:$PORT)" )"
+PUB="$(get_env WEB_HOST)"; PUB="${PUB:-<ip-o-nome-vm>}"
+say "SRM è attivo sulla VM:  $url"
+[ "$(get_env WEB_BIND)" = 127.0.0.1 ] || echo "    Dalla rete interna:  $SCHEME://$PUB:$PORT"
 echo "    Log:        docker compose logs -f api worker"
 echo "    Stop/Start: docker compose stop / docker compose start"
 echo "    Backup:     scripts/backup.sh"
 [ "$DEMO" = 1 ] && echo "    Dati demo:  scripts/seed_demo.sh $url"
-[ "$DEMO" = 1 ] || echo "    Entra: nel redirect URI SPA metti l'URL pubblico con questa porta (vedi docs/docker.md)"
+if [ "$DEMO" != 1 ]; then
+  echo "    Entra: redirect URI SPA = $SCHEME://$PUB:$PORT   (vedi docs/docker.md)"
+  [ "$SCHEME" = https ] || warn "Senza HTTPS il login Microsoft non funziona da altri PC: rilancia con --https --host <nome-dns>"
+  [ ! -f certs/ca.crt ] || echo "    Certificato CA da distribuire ai PC: certs/ca.crt"
+fi
 exit 0

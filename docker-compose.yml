@@ -57,8 +57,10 @@ services:
         VITE_AZ_CLIENT_ID: ${AZ_CLIENT_ID:-}
         VITE_AZ_TENANT_ID: ${AZ_TENANT_ID:-}
     restart: unless-stopped
-    ports:
-      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8088}:80"
+    ports:     # nel container nginx ascolta sempre su 8080 (HTTP o HTTPS in base ai certificati)
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-8088}:8080"
+    volumes:
+      - ./certs:/certs:ro      # tls.crt + tls.key => HTTPS (vedi docs/docker.md)
     depends_on:
       api: { condition: service_healthy }
 

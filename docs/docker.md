@@ -27,7 +27,36 @@ Opzioni: `--port 9090` (porta precisa, errore se occupata), `--demo` (prova senz
 
 ### Scegliere la porta a mano
 In `.env`: `WEB_PORT=9090`, poi `docker compose up -d`. Per vedere cosa è già occupato: `ss -ltnp | grep LISTEN`.
-`WEB_BIND=127.0.0.1` rende l'app raggiungibile solo dalla VM: usalo se c'è già un reverse proxy (nginx/Caddy/Traefik) che pubblica `https://srm.azienda.it` verso `127.0.0.1:<WEB_PORT>`.
+`WEB_BIND=<ip-interno>` limita l'ascolto a quell'indirizzo; `127.0.0.1` lo rende raggiungibile solo dalla VM (se c'è già un reverse proxy che pubblica verso `127.0.0.1:<WEB_PORT>`).
+
+### Solo rete interna (con login Microsoft) — consigliato
+L'app non deve essere raggiungibile da internet: basta che gli **utenti la aprano dalla rete aziendale**.
+Il login Microsoft avviene nel browser dell'utente, quindi Entra **non deve raggiungere la VM**.
+Fuori da `localhost`, però, il login richiede **HTTPS**: per questo l'installer sa preparare un HTTPS interno.
+
+```bash
+./install.sh --https --host srm.azienda.it --bind 10.0.0.5
+```
+- `--host`: nome DNS **interno** con cui gli utenti apriranno SRM. Meglio un nome che un IP, e meglio evitare `.local` (mDNS).
+- `--bind`: IP interno della VM. L'app ascolta solo lì: se la VM ha anche un IP pubblico, non è raggiungibile da fuori.
+- Porta HTTPS: parte da **8443** e, se occupata, prende la prima libera. Con `--port 9443` la scegli tu.
+- Certificato: l'installer crea una **CA interna** (`certs/ca.crt`) e un certificato per `--host` (valido 825 giorni, ricreabile).
+  Se avete già una CA aziendale: `--cert fullchain.pem --key chiave.pem`, e non serve distribuire nulla.
+
+**Da fare una volta sola, fuori dalla VM**
+1. **DNS interno:** record `srm.azienda.it` → IP della VM.
+2. **Firewall della VM:** apri la porta scelta solo verso la rete interna (es. `ufw allow from 10.0.0.0/8 to any port 8443 proto tcp`).
+3. **Entra ID:** nell'app SRM, *Authentication → Single-page application → Redirect URI* = `https://srm.azienda.it:8443`
+   (l'installer lo stampa alla fine). Un URI https con IP o `.local` può non essere accettato: usa il nome DNS.
+4. **Certificato sui PC** (solo con la CA generata): distribuisci `certs/ca.crt` come *Autorità di certificazione radice attendibile*
+   (Windows: GPO → Configurazione computer → Criteri di Windows → Impostazioni di protezione → Criteri di chiave pubblica →
+   Autorità di certificazione radice attendibili). Senza, i browser mostrano l'avviso e non è la configurazione da tenere.
+
+**Traffico in uscita dalla VM** (non serve nulla in entrata da internet): `login.microsoftonline.com` (validazione token),
+`graph.microsoft.com` (mail), `api.anthropic.com` (AI). Al primo `docker compose build` servono anche Docker Hub, `pypi.org` e `registry.npmjs.org`.
+Se la VM esce da un proxy aziendale, imposta `HTTP_PROXY`/`HTTPS_PROXY` per Docker.
+
+**Rinnovo certificato:** metti i nuovi `tls.crt`/`tls.key` in `certs/` e `docker compose restart web`.
 
 ### Prova rapida (senza Azure)
 ```bash
@@ -37,9 +66,9 @@ In demo non c'è login e tutti sono admin: per questo resta legato a 127.0.0.1. 
 
 ### Produzione (con Microsoft 365)
 1. Segui [m365-setup.md](m365-setup.md) e compila in `.env`: `AZ_TENANT_ID`, `AZ_CLIENT_ID`, `AZ_CLIENT_SECRET`, `ADMIN_EMAILS`, `GRAPH_MODE=graph`, `ANTHROPIC_API_KEY`.
-2. **Redirect URI SPA su Entra** = l'URL con cui gli utenti aprono l'app, **porta inclusa** (es. `http://10.0.0.5:8088` oppure `https://srm.azienda.it` se c'è il proxy). Se cambi porta o dominio va aggiornato su Entra.
+2. **Redirect URI SPA su Entra** = l'URL con cui gli utenti aprono l'app, **porta inclusa** (es. `https://srm.azienda.it:8443`). Se cambi porta o dominio va aggiornato su Entra.
 3. `AZ_CLIENT_ID` è incorporato nel frontend in fase di build: dopo averlo cambiato esegui `docker compose up -d --build`.
-4. Usa HTTPS (reverse proxy): il login Microsoft lo richiede fuori da `localhost`.
+4. Usa HTTPS: il login Microsoft lo richiede fuori da `localhost` (vedi *Solo rete interna*).
 
 ## Uso quotidiano
 ```bash

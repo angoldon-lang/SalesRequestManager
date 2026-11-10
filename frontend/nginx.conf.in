@@ -1,7 +1,10 @@
+# Generato all'avvio da 05-srm-listen.sh: HTTPS se in /certs ci sono tls.crt e tls.key
 server {
-  listen 80;
+  #LISTEN#
+  #TLS#
   root /usr/share/nginx/html;
   client_max_body_size 5m;
+  server_tokens off;
 
   location /api/ {
     proxy_pass http://api:8000;

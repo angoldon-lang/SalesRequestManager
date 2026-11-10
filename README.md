@@ -28,7 +28,8 @@ Regole DR: validazione su 3 livelli (zod nel form → Pydantic/API → `CHECK` n
 
 ## Installazione (Docker, tutto in container)
 ```bash
-./install.sh        # DB + API + worker + web; sceglie da solo una porta web libera (default 8088)
+./install.sh                                  # prova: DB + API + worker + web, porta libera da 8088
+./install.sh --https --host srm.azienda.it    # rete interna con HTTPS (richiesto dal login Microsoft)
 ```
 Il database vive in un container: nessuna porta del DB/API è esposta sull'host, quindi nessun conflitto con altri
 PostgreSQL della VM. Guida completa (porta, reverse proxy, Entra, backup): [docs/docker.md](docs/docker.md).
