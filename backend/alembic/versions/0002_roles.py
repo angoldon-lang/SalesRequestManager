@@ -17,8 +17,14 @@ def upgrade() -> None:
           END IF;
         END $$;""")
     op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'SALES'")
-    op.execute("""ALTER TABLE app_users ADD COLUMN IF NOT EXISTS sales_agent_id BIGINT
-                  UNIQUE REFERENCES sales_agents(id) ON DELETE SET NULL""")
+    # Solo se esiste ancora la vecchia tabella sales_agents (sulle installazioni nuove non c'è: vedi 0003)
+    op.execute("""
+        DO $$ BEGIN
+          IF to_regclass('public.sales_agents') IS NOT NULL THEN
+            ALTER TABLE app_users ADD COLUMN IF NOT EXISTS sales_agent_id BIGINT
+              UNIQUE REFERENCES sales_agents(id) ON DELETE SET NULL;
+          END IF;
+        END $$;""")
     op.execute("CREATE INDEX IF NOT EXISTS ix_requests_agent ON requests(sales_agent_id)")
     op.execute("CREATE INDEX IF NOT EXISTS ix_requests_creator ON requests(created_by)")
 

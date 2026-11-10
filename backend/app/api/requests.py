@@ -85,9 +85,9 @@ def create_request(body: s.RequestCreate, db: Session = Depends(get_db),
                    user: AppUser = Depends(current_user)):
     data = body.model_dump(exclude_none=True)
     if not is_staff(user):                      # il SALES crea sempre a nome proprio
-        if user.sales_agent_id is None:
-            raise HTTPException(403, "Il tuo utente non è collegato a un agente commerciale: contatta l'admin")
-        data["sales_agent_id"] = user.sales_agent_id
+        data["sales_agent_id"] = user.id
+    else:
+        svc.check_agent(db, data.get("sales_agent_id"))
     r = Request(**data, status=RequestStatus.DRAFT, source=RequestSource.MANUAL, created_by=user.id)
     db.add(r)
     commit(db)
@@ -111,8 +111,10 @@ def patch_request(rid: int, body: s.RequestPatch, db: Session = Depends(get_db),
                   user: AppUser = Depends(current_user)):
     r = load(db, rid, user)
     data = body.model_dump(exclude_unset=True)
-    if not is_staff(user) and data.get("sales_agent_id", user.sales_agent_id) != user.sales_agent_id:
+    if not is_staff(user) and data.get("sales_agent_id", user.id) != user.id:
         raise HTTPException(403, "Non puoi assegnare la richiesta ad un altro agente")
+    if is_staff(user) and data.get("sales_agent_id") is not None:
+        svc.check_agent(db, data["sales_agent_id"])
     if r.status == RequestStatus.CLOSED:
         raise HTTPException(409, "Richiesta chiusa: riaprila per modificarla")
     if r.status != RequestStatus.DRAFT:

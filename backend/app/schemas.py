@@ -36,16 +36,11 @@ class SupplierOut(SupplierIn, ORM):
     id: int
 
 
-class AgentIn(BaseModel):
-    full_name: str = Field(min_length=1)
-    email: EmailStr
-    is_active: bool = True
-
-
 class AgentOut(ORM):
+    """Agente commerciale = utente con ruolo SALES."""
     id: int
     full_name: str
-    email: str
+    email: str | None
     is_active: bool
 
 
@@ -75,17 +70,62 @@ class MapOut(ORM):
 
 class UserOut(ORM):
     id: int
-    email: str
+    username: str
+    email: str | None
     full_name: str
     role: UserRole
     is_active: bool
-    sales_agent_id: int | None = None
+    must_change_password: bool = False
+    last_login_at: datetime | None = None
+    locked_until: datetime | None = None
+    has_password: bool = True
 
 
-class UserPatch(BaseModel):
+class UserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._@+-]+$")
+    full_name: str = Field(min_length=1, max_length=120)
+    email: EmailStr | None = None
+    role: UserRole = UserRole.SALES
+    password: str = Field(min_length=1, max_length=128)       # provvisoria: l'utente deve cambiarla al primo accesso
+    is_active: bool = True
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def empty_email(cls, v):
+        return v or None
+
+
+class UserUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: EmailStr | None = None
     role: UserRole | None = None
     is_active: bool | None = None
-    sales_agent_id: int | None = None   # null esplicito = scollega
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def empty_email(cls, v):
+        return v or None
+
+
+class PasswordReset(BaseModel):
+    new_password: str = Field(min_length=1, max_length=128)
+
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    must_change_password: bool
+    user: UserOut
 
 
 # ---------- config ----------

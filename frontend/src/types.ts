@@ -18,7 +18,7 @@ export interface Req {
 }
 export interface Vendor { id: number; name: string; website: string | null; notes: string | null; is_active: boolean }
 export interface Supplier { id: number; name: string; notes: string | null; is_active: boolean }
-export interface Agent { id: number; full_name: string; email: string; is_active: boolean }
+export interface Agent { id: number; full_name: string; email: string | null; is_active: boolean }
 export interface MapRow {
   id: number; vendor_id: number; supplier_id: number; to_emails: string[]; cc_emails: string[];
   supports_dr: boolean; is_preferred: boolean;
@@ -28,9 +28,17 @@ export interface Config {
   reminder_after_days: number; reminder_max_count: number; reminder_business_days: boolean; llm_model: string;
 }
 export type Role = "ADMIN" | "BACKOFFICE" | "SALES";
-export interface User { id: number; email: string; full_name: string; role: Role; is_active: boolean; sales_agent_id: number | null }
+export interface User {
+  id: number; username: string; email: string | null; full_name: string; role: Role; is_active: boolean;
+  must_change_password: boolean; last_login_at: string | null; locked_until: string | null; has_password: boolean;
+}
 export const ROLE_LABEL: Record<Role, string> = {
-  ADMIN: "Admin / Direzione Sales", BACKOFFICE: "Backoffice", SALES: "Sales",
+  ADMIN: "Admin / Direzione Sales", BACKOFFICE: "Backoffice", SALES: "Sales (agente commerciale)",
+};
+export const ROLE_HELP: Record<Role, string> = {
+  ADMIN: "Vede tutto, configura il sistema, gestisce utenti e ruoli.",
+  BACKOFFICE: "Vede e gestisce tutte le richieste. Non configura.",
+  SALES: "Agente commerciale: vede solo le proprie richieste. L'email viene messa in CC.",
 };
 export const isStaff = (r?: Role) => r === "ADMIN" || r === "BACKOFFICE";
 export interface Inbound {

@@ -23,16 +23,22 @@ git checkout claude/focused-sagan-5wglk0
 3. **cerca una porta web libera** a partire da 8088 e la scrive in `.env`;
 4. costruisce e avvia i container, poi attende che l'app risponda e stampa l'URL.
 
-Opzioni: `--port 9090` (porta precisa, errore se occupata), `--demo` (prova senza Microsoft: nessun login, solo `127.0.0.1`), `--no-start`.
+Opzioni: `--port 9090` (porta precisa, errore se occupata), `--admin-password '...'` (password iniziale dell'admin), `--no-start`.
 
 ### Scegliere la porta a mano
 In `.env`: `WEB_PORT=9090`, poi `docker compose up -d`. Per vedere cosa è già occupato: `ss -ltnp | grep LISTEN`.
 `WEB_BIND=<ip-interno>` limita l'ascolto a quell'indirizzo; `127.0.0.1` lo rende raggiungibile solo dalla VM (se c'è già un reverse proxy che pubblica verso `127.0.0.1:<WEB_PORT>`).
 
-### Solo rete interna (con login Microsoft) — consigliato
+### Primo accesso
+Alla fine dell'installazione lo script stampa le credenziali iniziali: utente **`admin`**, password **`ChangeMe!2026`**
+(o quella scelta con `--admin-password`). Al primo login il cambio password è **obbligatorio**. Poi crea utenti e agenti
+da **Utenti e ruoli** (vedi [ruoli.md](ruoli.md)). Finché non l'hai cambiata, chi raggiunge la pagina di login conosce la password
+iniziale: fai il primo accesso subito dopo l'installazione.
+
+### Solo rete interna — consigliato
 L'app non deve essere raggiungibile da internet: basta che gli **utenti la aprano dalla rete aziendale**.
-Il login Microsoft avviene nel browser dell'utente, quindi Entra **non deve raggiungere la VM**.
-Fuori da `localhost`, però, il login richiede **HTTPS**: per questo l'installer sa preparare un HTTPS interno.
+Con il login a password funziona anche in HTTP, ma le **password viaggerebbero in chiaro**: in rete interna usa HTTPS
+(l'installer lo prepara). Con `AUTH_MODE=entra` (login Microsoft) l'HTTPS è obbligatorio fuori da `localhost`.
 
 ```bash
 ./install.sh --https --host srm.azienda.it --bind 10.0.0.5
@@ -58,17 +64,16 @@ Se la VM esce da un proxy aziendale, imposta `HTTP_PROXY`/`HTTPS_PROXY` per Dock
 
 **Rinnovo certificato:** metti i nuovi `tls.crt`/`tls.key` in `certs/` e `docker compose restart web`.
 
-### Prova rapida (senza Azure)
+### Dati di esempio (facoltativo)
 ```bash
-./install.sh --demo        # poi: scripts/seed_demo.sh http://127.0.0.1:<porta>
+scripts/seed_demo.sh http://127.0.0.1:8088 admin '<la-tua-password-admin>'   # vendor, supplier, mapping e un agente di prova
 ```
-In demo non c'è login e tutti sono admin: per questo resta legato a 127.0.0.1. Da un altro PC: `ssh -L 8088:127.0.0.1:8088 utente@vm`.
 
-### Produzione (con Microsoft 365)
-1. Segui [m365-setup.md](m365-setup.md) e compila in `.env`: `AZ_TENANT_ID`, `AZ_CLIENT_ID`, `AZ_CLIENT_SECRET`, `ADMIN_EMAILS`, `GRAPH_MODE=graph`, `ANTHROPIC_API_KEY`.
-2. **Redirect URI SPA su Entra** = l'URL con cui gli utenti aprono l'app, **porta inclusa** (es. `https://srm.azienda.it:8443`). Se cambi porta o dominio va aggiornato su Entra.
-3. `AZ_CLIENT_ID` è incorporato nel frontend in fase di build: dopo averlo cambiato esegui `docker compose up -d --build`.
-4. Usa HTTPS: il login Microsoft lo richiede fuori da `localhost` (vedi *Solo rete interna*).
+### Mail con Microsoft 365 (Graph)
+L'invio e la lettura delle mail usano Microsoft Graph, indipendentemente da come si fa il login. Segui [m365-setup.md](m365-setup.md)
+e compila in `.env`: `AZ_TENANT_ID`, `AZ_CLIENT_ID`, `AZ_CLIENT_SECRET`, `GRAPH_MODE=graph`, `ANTHROPIC_API_KEY`; poi `docker compose up -d`.
+Per il **login Microsoft** invece di utente/password: `AUTH_MODE=entra` e `docker compose up -d --build`
+(`AZ_CLIENT_ID` entra nel frontend in fase di build; redirect URI SPA = URL con cui gli utenti aprono l'app, porta inclusa).
 
 ## Uso quotidiano
 ```bash

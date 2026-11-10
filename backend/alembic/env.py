@@ -9,7 +9,7 @@ config = context.config
 def run_migrations_online() -> None:
     engine = create_engine(settings.database_url)
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=None)
+        context.configure(connection=connection, target_metadata=None, transaction_per_migration=True)
         with context.begin_transaction():
             context.run_migrations()
 

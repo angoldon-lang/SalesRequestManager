@@ -62,23 +62,22 @@ NOW = text("now()")
 
 
 class AppUser(Base):
+    """Utente dell'applicazione. L'agente commerciale è un utente con ruolo SALES."""
     __tablename__ = "app_users"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str] = mapped_column(CITEXT, unique=True)
+    email: Mapped[str | None] = mapped_column(CITEXT, unique=True)
     entra_oid: Mapped[str | None] = mapped_column(UUID(as_uuid=False), unique=True)
-    email: Mapped[str] = mapped_column(CITEXT, unique=True)
     full_name: Mapped[str] = mapped_column(Text)
     role: Mapped[UserRole] = mapped_column(_enum(UserRole, "user_role"), default=UserRole.SALES)
-    sales_agent_id: Mapped[int | None] = mapped_column(ForeignKey("sales_agents.id", ondelete="SET NULL"), unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
+    failed_logins: Mapped[int] = mapped_column(SmallInteger, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=NOW)
-
-
-class SalesAgent(Base):
-    __tablename__ = "sales_agents"
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    full_name: Mapped[str] = mapped_column(Text)
-    email: Mapped[str] = mapped_column(CITEXT, unique=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Vendor(Base):
@@ -122,6 +121,7 @@ class GlobalConfig(Base):
     reminder_max_count: Mapped[int] = mapped_column(SmallInteger, default=3)
     reminder_business_days: Mapped[bool] = mapped_column(Boolean, default=True)
     llm_model: Mapped[str] = mapped_column(Text, default="claude-sonnet-5-5")
+    jwt_secret: Mapped[str | None] = mapped_column(Text)
     updated_by: Mapped[int | None] = mapped_column(ForeignKey("app_users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=NOW)
 
@@ -157,7 +157,7 @@ class Request(Base):
 
     vendor_id: Mapped[int | None] = mapped_column(ForeignKey("vendors.id"))
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))
-    sales_agent_id: Mapped[int | None] = mapped_column(ForeignKey("sales_agents.id"))
+    sales_agent_id: Mapped[int | None] = mapped_column(ForeignKey("app_users.id"))
     created_by: Mapped[int | None] = mapped_column(ForeignKey("app_users.id"))
 
     subject: Mapped[str] = mapped_column(Text)
@@ -191,7 +191,7 @@ class Request(Base):
 
     vendor: Mapped[Vendor | None] = relationship(lazy="joined")
     supplier: Mapped[Supplier | None] = relationship(lazy="joined")
-    sales_agent: Mapped[SalesAgent | None] = relationship(lazy="joined")
+    sales_agent: Mapped[AppUser | None] = relationship(foreign_keys=[sales_agent_id], lazy="joined")
 
 
 class RequestEvent(Base):

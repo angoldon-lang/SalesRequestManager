@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ApiError, get, patch, post } from "../api";
 import { Card, ErrorBox, Field } from "../components";
+import { Link } from "react-router-dom";
 import { Agent, MapRow, Req, Supplier, User, Vendor, isStaff } from "../types";
 
 const num = (v: unknown) => (v === "" || v === null || v === undefined ? undefined : Number(String(v).replace(",", ".")));
@@ -43,7 +44,7 @@ export default function RequestForm() {
 
   const vendors = useQuery({ queryKey: ["vendors"], queryFn: () => get<Vendor[]>("/vendors?active_only=true") });
   const suppliers = useQuery({ queryKey: ["suppliers"], queryFn: () => get<Supplier[]>("/suppliers?active_only=true") });
-  const agents = useQuery({ queryKey: ["agents"], queryFn: () => get<Agent[]>("/agents?active_only=true") });
+  const agents = useQuery({ queryKey: ["agents"], queryFn: () => get<Agent[]>("/agents") });
   const maps = useQuery({ queryKey: ["map"], queryFn: () => get<MapRow[]>("/vendor-supplier-map") });
   const me = useQuery({ queryKey: ["me"], queryFn: () => get<User>("/me") });
   const existing = useQuery({ queryKey: ["request", id], enabled: !!id, queryFn: () => get<Req>(`/requests/${id}`) });
@@ -58,8 +59,9 @@ export default function RequestForm() {
   // Un SALES crea sempre a nome proprio: l'agente è fisso (il backend lo impone comunque)
   const salesOnly = me.data ? !isStaff(me.data.role) : false;
   useEffect(() => {
-    if (salesOnly && me.data?.sales_agent_id && !id) setValue("sales_agent_id", me.data.sales_agent_id);
-  }, [salesOnly, me.data, id, setValue]);
+    // dopo che le opzioni sono nel DOM (agents.data), altrimenti il select non le trova
+    if (salesOnly && me.data && !id && agents.data?.some((a) => a.id === me.data!.id)) setValue("sales_agent_id", me.data.id);
+  }, [salesOnly, me.data, id, setValue, agents.data]);
 
   const type = watch("request_type");
   const vendorId = Number(watch("vendor_id")) || 0;
@@ -132,10 +134,16 @@ export default function RequestForm() {
                 </select>
               </Field>
               <Field label="Agente commerciale (in CC)" required error={err("sales_agent_id")}>
-                <select {...register("sales_agent_id")} disabled={salesOnly && !!me.data?.sales_agent_id}>
+                <select {...register("sales_agent_id")} disabled={salesOnly}>
                   <option value="">—</option>
                   {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
                 </select>
+                {agents.data?.length === 0 && (
+                  <small className="muted">
+                    Nessun agente: gli agenti commerciali sono gli utenti con ruolo Sales.{" "}
+                    {me.data?.role === "ADMIN" && <Link to="/users">Aggiungi un utente Sales →</Link>}
+                  </small>
+                )}
               </Field>
               <Field label="Vendor" required error={err("vendor_id")}>
                 <select {...register("vendor_id")}>

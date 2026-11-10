@@ -1,4 +1,4 @@
-import { getToken } from "./auth";
+import { getToken, mode, setToken } from "./auth";
 
 export class ApiError extends Error {
   constructor(public status: number, public detail: any) {
@@ -20,6 +20,13 @@ export async function api<T = any>(method: string, path: string, body?: unknown)
   if (!res.ok) {
     let detail: any = res.statusText;
     try { detail = (await res.json()).detail ?? detail; } catch { /* corpo non JSON */ }
+    // Sessione scaduta o cambio password richiesto: la UI torna alla schermata giusta
+    const isLogin = path.startsWith("/auth/login") || path.startsWith("/auth/change-password");
+    if (res.status === 401 && mode === "local" && !isLogin && token) {   // solo se la sessione esisteva ed è scaduta
+      setToken(null);
+      window.dispatchEvent(new Event("srm-session-changed"));
+    }
+    if (res.status === 403 && detail?.code === "PASSWORD_CHANGE_REQUIRED") window.dispatchEvent(new Event("srm-session-changed"));
     if (Array.isArray(detail)) detail = detail.map((d) => `${d.loc?.slice(1).join(".")}: ${d.msg}`).join("; ");
     throw new ApiError(res.status, detail);
   }

@@ -10,23 +10,23 @@ CREATE TYPE request_source AS ENUM ('MANUAL', 'EMAIL_AI');
 CREATE TYPE user_role      AS ENUM ('ADMIN', 'BACKOFFICE', 'SALES');
 CREATE TYPE inbound_status AS ENUM ('NEW', 'PARSED', 'NEEDS_REVIEW', 'ERROR', 'IGNORED');
 
-CREATE TABLE sales_agents (
-    id           BIGSERIAL PRIMARY KEY,
-    full_name    TEXT NOT NULL,
-    email        CITEXT NOT NULL UNIQUE,
-    is_active    BOOLEAN NOT NULL DEFAULT TRUE
-);
-
+-- Utenti dell'applicazione. L'"agente commerciale" è un utente con ruolo SALES.
 CREATE TABLE app_users (
-    id           BIGSERIAL PRIMARY KEY,
-    entra_oid    UUID UNIQUE,
-    email        CITEXT NOT NULL UNIQUE,
-    full_name    TEXT NOT NULL,
-    role         user_role NOT NULL DEFAULT 'SALES',
-    -- Per i SALES: l'agente commerciale di cui vede le richieste
-    sales_agent_id BIGINT UNIQUE REFERENCES sales_agents(id) ON DELETE SET NULL,
-    is_active    BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                    BIGSERIAL PRIMARY KEY,
+    username              CITEXT NOT NULL UNIQUE,          -- identificativo di login
+    email                 CITEXT UNIQUE,                   -- usata per il CC e per riconoscere le email in ingresso
+    entra_oid             UUID UNIQUE,
+    full_name             TEXT NOT NULL,
+    role                  user_role NOT NULL DEFAULT 'SALES',
+    is_active             BOOLEAN NOT NULL DEFAULT TRUE,
+    password_hash         TEXT,                            -- NULL = non può accedere con password
+    must_change_password  BOOLEAN NOT NULL DEFAULT FALSE,
+    token_version         INTEGER NOT NULL DEFAULT 0,      -- incrementata a ogni cambio password: invalida i token
+    failed_logins         SMALLINT NOT NULL DEFAULT 0,
+    locked_until          TIMESTAMPTZ,
+    last_login_at         TIMESTAMPTZ,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_sales_has_email CHECK (role <> 'SALES' OR email IS NOT NULL)
 );
 
 CREATE TABLE vendors (
@@ -70,6 +70,7 @@ CREATE TABLE global_config (
     reminder_max_count         SMALLINT NOT NULL DEFAULT 3  CHECK (reminder_max_count BETWEEN 1 AND 10),
     reminder_business_days     BOOLEAN NOT NULL DEFAULT TRUE,
     llm_model                  TEXT NOT NULL DEFAULT 'claude-sonnet-5-5',
+    jwt_secret                 TEXT,                    -- generata al primo avvio se SECRET_KEY non è impostata
     updated_by                 BIGINT REFERENCES app_users(id),
     updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -102,7 +103,7 @@ CREATE TABLE requests (
 
     vendor_id               BIGINT REFERENCES vendors(id),
     supplier_id             BIGINT REFERENCES suppliers(id),
-    sales_agent_id          BIGINT REFERENCES sales_agents(id),
+    sales_agent_id          BIGINT REFERENCES app_users(id),   -- utente con ruolo SALES
     created_by              BIGINT REFERENCES app_users(id),
 
     subject                 TEXT NOT NULL,

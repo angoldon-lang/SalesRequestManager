@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     CloseReason, GlobalConfig, Request, RequestEvent, RequestStatus, RequestType,
-    SalesAgent, VendorSupplierMap,
+    AppUser, UserRole, VendorSupplierMap,
 )
 from app.services import mail_templates
 
@@ -36,6 +36,16 @@ def missing_dr_fields(req: Request) -> list[str]:
     return miss
 
 
+def check_agent(db: Session, agent_id: int | None) -> None:
+    """L'agente deve essere un utente SALES attivo."""
+    if agent_id is None:
+        return
+    a = db.get(AppUser, agent_id)
+    if a is None or a.role != UserRole.SALES or not a.is_active:
+        raise HTTPException(422, {"message": "Agente non valido",
+                                  "fields": {"sales_agent_id": "Seleziona un utente Sales attivo"}})
+
+
 def get_config(db: Session) -> GlobalConfig:
     return db.get(GlobalConfig, 1)
 
@@ -54,6 +64,12 @@ def validate_for_send(db: Session, req: Request) -> VendorSupplierMap:
             errors[f] = "Obbligatorio per l'invio"
     if not (req.subject or "").strip():
         errors["subject"] = "Obbligatorio"
+    if req.sales_agent_id:
+        agent = db.get(AppUser, req.sales_agent_id)
+        if agent is None or agent.role != UserRole.SALES or not agent.is_active:
+            errors["sales_agent_id"] = "L'agente deve essere un utente Sales attivo"
+        elif not agent.email:
+            errors["sales_agent_id"] = "L'agente non ha un'email: impostala nella pagina Utenti"
     mapping = None
     if req.vendor_id and req.supplier_id:
         mapping = get_map(db, req.vendor_id, req.supplier_id)
@@ -76,7 +92,7 @@ def _dedupe(addresses: list[str], exclude: set[str]) -> list[str]:
     return out
 
 
-def build_recipients(cfg: GlobalConfig, mapping: VendorSupplierMap, agent: SalesAgent):
+def build_recipients(cfg: GlobalConfig, mapping: VendorSupplierMap, agent: AppUser):
     to = _dedupe(mapping.to_emails, set())
     cc = _dedupe([agent.email, *cfg.default_cc, *mapping.cc_emails], set(to))
     return to, cc
@@ -87,7 +103,7 @@ def send_request(db: Session, graph, req: Request, actor: str) -> Request:
         raise HTTPException(409, "Solo una bozza può essere inviata")
     mapping = validate_for_send(db, req)
     cfg = get_config(db)
-    agent = db.get(SalesAgent, req.sales_agent_id)
+    agent = db.get(AppUser, req.sales_agent_id)
     to, cc = build_recipients(cfg, mapping, agent)
 
     msg = {

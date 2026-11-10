@@ -6,13 +6,19 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://postgres@/srm?host=/var/tmp/srmpg"
 
-    # --- Auth (Microsoft Entra ID) ---
-    auth_disabled: bool = False          # SOLO sviluppo: nessun login, utente admin fittizio
+    # --- Autenticazione ---
+    auth_mode: str = "local"             # "local" = utente/password (default) | "entra" = Microsoft Entra ID
+    secret_key: str = ""                 # firma dei token; se vuota viene generata e salvata nel DB
+    token_ttl_minutes: int = 480         # durata della sessione (8 ore)
+    default_admin_username: str = "admin"
+    default_admin_password: str = "ChangeMe!2026"   # SOLO al primo avvio; il cambio è obbligatorio al primo accesso
+    auth_disabled: bool = False          # SOLO sviluppo/test: nessun login, utente admin fittizio
+    # --- Microsoft Entra ID (solo con AUTH_MODE=entra) ---
     az_tenant_id: str = ""
     az_client_id: str = ""               # client id dell'app (stesso usato come audience delle API)
     az_client_secret: str = ""           # usato da Graph (client credentials)
     api_audience: str = ""               # default: az_client_id
-    default_role: str = "SALES"          # ruolo dei nuovi utenti al primo login (privilegio minimo)
+    default_role: str = "SALES"          # (Entra) ruolo dei nuovi utenti al primo login
     admin_emails: str = ""               # lista separata da virgola: diventano ADMIN al primo login
 
     # --- Graph ---

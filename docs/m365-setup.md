@@ -1,5 +1,8 @@
 # Setup Microsoft 365 / Entra ID
 
+> Il **login** dell'app è per default con utente/password (vedi [ruoli.md](ruoli.md)). Questa guida serve per le **mail via Graph**
+> (sezioni 1 punti 4-6, 2, 3) e, solo se vuoi il login Microsoft (`AUTH_MODE=entra`), anche per lo scope `access_as_user` e il redirect URI.
+
 SRM usa **due** registrazioni logiche nella stessa app Entra: login utenti (delegato, SPA) e Graph (applicativo, backend).
 
 ## 1. App registration

@@ -5,16 +5,16 @@
 #   ./install.sh --https --host srm.azienda.it   # rete interna con HTTPS (CA + certificato generati)
 #   ./install.sh --https --host srm.azienda.it --cert c.pem --key k.pem   # certificato aziendale
 #   ./install.sh --bind 10.0.0.5 # ascolta solo su quell'IP della VM (consigliato)
-#   ./install.sh --demo          # prova senza Microsoft: nessun login, solo 127.0.0.1
+#   ./install.sh --admin-password 'Iniziale#2026'  # password iniziale dell'admin (default: ChangeMe!2026)
 #   ./install.sh --no-start      # prepara solo .env/certificati e controlla la porta
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PORT_ARG=""; DEMO=0; START=1; HTTPS=0; HOST_ARG=""; CERT_ARG=""; KEY_ARG=""; BIND_ARG=""
+PORT_ARG=""; ADMIN_PW_ARG=""; START=1; HTTPS=0; HOST_ARG=""; CERT_ARG=""; KEY_ARG=""; BIND_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --port) PORT_ARG="${2:?manca il numero di porta}"; shift 2 ;;
-    --demo) DEMO=1; shift ;;
+    --admin-password) ADMIN_PW_ARG="${2:?manca la password}"; shift 2 ;;
     --https) HTTPS=1; shift ;;
     --host) HOST_ARG="${2:?manca il nome host}"; shift 2 ;;
     --cert) CERT_ARG="${2:?manca il file certificato}"; shift 2 ;;
@@ -37,10 +37,16 @@ port_in_use() {   # vero se qualcosa ascolta sulla porta (qualsiasi processo o c
     (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
   fi
 }
-set_env() {       # set_env CHIAVE VALORE  (aggiorna o aggiunge in .env)
-  if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else printf '%s=%s\n' "$1" "$2" >> .env; fi
+set_env() {       # set_env CHIAVE VALORE  (aggiorna o aggiunge in .env; i valori con # $ spazi vanno tra apici singoli)
+  local v="$2"
+  case "$v" in *\'*) die "Il valore di $1 non può contenere l'apice singolo";; esac
+  case "$v" in *[\ \#\$\"\&\|\!]*) v="'$v'";; esac
+  local e; e="$(printf '%s' "$v" | sed -e 's/[\\&|]/\\&/g')"
+  if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$e|" .env; else printf '%s=%s\n' "$1" "$v" >> .env; fi
 }
-get_env() { { grep -E "^$1=" .env 2>/dev/null || true; } | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//'; }
+get_env() {       # valore senza commento finale (" # ...") e senza apici
+  { grep -E "^$1=" .env 2>/dev/null || true; } | head -1 | cut -d= -f2- | sed -E "s/[[:space:]]+#.*$//; s/^'(.*)'$/\1/"
+}
 
 # ---- 1. prerequisiti ----
 if [ "$START" = 1 ]; then
@@ -59,6 +65,11 @@ if [ ! -f .env ]; then
 else
   say ".env già presente: lo mantengo"
 fi
+
+[ -n "$(get_env SECRET_KEY)" ] || set_env SECRET_KEY "$( (openssl rand -hex 32 2>/dev/null) || head -c 48 /dev/urandom | od -An -tx1 | tr -d ' \n' )"
+[ -z "$ADMIN_PW_ARG" ] || set_env DEFAULT_ADMIN_PASSWORD "$ADMIN_PW_ARG"
+[ -n "$(get_env AUTH_MODE)" ] || set_env AUTH_MODE local
+[ -n "$(get_env DEFAULT_ADMIN_PASSWORD)" ] || set_env DEFAULT_ADMIN_PASSWORD 'ChangeMe!2026'
 
 # ---- 2b. HTTPS interno (il login Microsoft richiede HTTPS fuori da localhost) ----
 has_tls() { [ -f certs/tls.crt ] && [ -f certs/tls.key ]; }
@@ -113,19 +124,6 @@ else
 fi
 set_env WEB_PORT "$PORT"
 
-# ---- 4. modalità demo / produzione ----
-if [ "$DEMO" = 1 ] || { [ -z "$(get_env AZ_CLIENT_ID)" ] && [ "$(get_env AUTH_DISABLED)" != "true" ]; }; then
-  if [ "$DEMO" = 0 ]; then
-    warn "Microsoft Entra non configurato (AZ_CLIENT_ID vuoto)."
-    if [ -t 0 ]; then read -r -p "    Avvio in modalità DEMO (senza login, solo da questa VM)? [s/N] " a; [ "${a:-n}" = s ] || [ "${a:-n}" = S ] && DEMO=1
-    else warn "Modalità non interattiva: compila .env e rilancia, oppure usa --demo."; fi
-  fi
-  if [ "$DEMO" = 1 ]; then
-    set_env AUTH_DISABLED true; set_env WEB_BIND 127.0.0.1; set_env GRAPH_MODE dry-run
-    warn "DEMO: nessun login, tutti admin, mail solo simulate. Raggiungibile SOLO da 127.0.0.1."
-  fi
-fi
-
 [ "$START" = 1 ] || { say "Preparazione completata (--no-start). Porta web: $PORT"; exit 0; }
 
 # ---- 5. avvio ----
@@ -146,10 +144,13 @@ say "SRM è attivo sulla VM:  $url"
 echo "    Log:        docker compose logs -f api worker"
 echo "    Stop/Start: docker compose stop / docker compose start"
 echo "    Backup:     scripts/backup.sh"
-[ "$DEMO" = 1 ] && echo "    Dati demo:  scripts/seed_demo.sh $url"
-if [ "$DEMO" != 1 ]; then
-  echo "    Entra: redirect URI SPA = $SCHEME://$PUB:$PORT   (vedi docs/docker.md)"
-  [ "$SCHEME" = https ] || warn "Senza HTTPS il login Microsoft non funziona da altri PC: rilancia con --https --host <nome-dns>"
-  [ ! -f certs/ca.crt ] || echo "    Certificato CA da distribuire ai PC: certs/ca.crt"
+echo
+say "Primo accesso:  utente  admin   password  $(get_env DEFAULT_ADMIN_PASSWORD)"
+echo "    Al primo login ti verrà chiesto di cambiare la password (obbligatorio)."
+echo "    Poi crea gli utenti e gli agenti commerciali da  Utenti e ruoli."
+if [ "$SCHEME" != https ]; then
+  warn "Sei in HTTP: le password viaggiano in chiaro sulla rete. Consigliato: ./install.sh --https --host <nome-dns>"
 fi
+[ ! -f certs/ca.crt ] || echo "    Certificato CA da distribuire ai PC: certs/ca.crt"
+[ "$(get_env AUTH_MODE)" != entra ] || echo "    Entra: redirect URI SPA = $SCHEME://$PUB:$PORT   (vedi docs/m365-setup.md)"
 exit 0

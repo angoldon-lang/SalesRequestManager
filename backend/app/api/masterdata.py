@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app import schemas as s
 from app.db import get_db
-from app.models import AppUser, SalesAgent, Supplier, Vendor, VendorSupplierMap
+from app.models import AppUser, Supplier, UserRole, Vendor, VendorSupplierMap
 from app.access import is_staff
 from app.security import current_user, require_admin
 
@@ -25,13 +25,10 @@ def _commit(db: Session):
 
 def crud(path: str, model: Type, in_schema, out_schema):
     @router.get(f"/{path}", response_model=list[out_schema], name=f"list_{path}")
-    def list_(active_only: bool = False, db: Session = Depends(get_db),
-              user: AppUser = Depends(current_user)):
+    def list_(active_only: bool = False, db: Session = Depends(get_db)):
         q = select(model).order_by(model.id)
         if active_only:
             q = q.where(model.is_active)
-        if model is SalesAgent and not is_staff(user):   # un SALES vede solo se stesso
-            q = q.where(SalesAgent.id == user.sales_agent_id)
         return db.scalars(q).all()
 
     @router.post(f"/{path}", response_model=out_schema, status_code=201, name=f"create_{path}",
@@ -56,7 +53,15 @@ def crud(path: str, model: Type, in_schema, out_schema):
 
 crud("vendors", Vendor, s.VendorIn, s.VendorOut)
 crud("suppliers", Supplier, s.SupplierIn, s.SupplierOut)
-crud("agents", SalesAgent, s.AgentIn, s.AgentOut)
+
+
+# ----- agenti commerciali = utenti con ruolo SALES (si creano dalla pagina Utenti) -----
+@router.get("/agents", response_model=list[s.AgentOut])
+def list_agents(db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
+    q = select(AppUser).where(AppUser.role == UserRole.SALES, AppUser.is_active).order_by(AppUser.full_name)
+    if not is_staff(user):                 # un SALES vede solo se stesso
+        q = q.where(AppUser.id == user.id)
+    return db.scalars(q).all()
 
 
 # ----- mapping vendor <-> supplier -----
@@ -107,28 +112,3 @@ def delete_map(map_id: int, db: Session = Depends(get_db)):
 def vendor_suppliers(vendor_id: int, db: Session = Depends(get_db), user: AppUser = Depends(current_user)):
     rows = db.scalars(select(VendorSupplierMap).where(VendorSupplierMap.vendor_id == vendor_id)).all()
     return [_redact(m, user) for m in rows]
-
-
-# ----- utenti -----
-@router.get("/users", response_model=list[s.UserOut], dependencies=[Depends(require_admin)])
-def list_users(db: Session = Depends(get_db)):
-    return db.scalars(select(AppUser).order_by(AppUser.id)).all()
-
-
-@router.patch("/users/{user_id}", response_model=s.UserOut)
-def patch_user(user_id: int, body: s.UserPatch, db: Session = Depends(get_db),
-               me: AppUser = Depends(require_admin)):
-    u = db.get(AppUser, user_id)
-    if not u:
-        raise HTTPException(404)
-    if u.id == me.id:
-        raise HTTPException(409, "Non puoi modificare il tuo utente")
-    for k, v in body.model_dump(exclude_unset=True).items():
-        if k in ("role", "is_active") and v is None:
-            continue
-        setattr(u, k, v)
-    if u.sales_agent_id is not None and not db.get(SalesAgent, u.sales_agent_id):
-        db.rollback()
-        raise HTTPException(422, "Agente inesistente")
-    _commit(db)
-    return u

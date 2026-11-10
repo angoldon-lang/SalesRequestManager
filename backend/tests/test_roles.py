@@ -9,13 +9,10 @@ ADMIN, BACK, S1, S2 = H(), H("back1@az.it"), H("sales1@az.it"), H("sales2@az.it"
 
 @pytest.fixture
 def team(client, seed):
-    """Due agenti collegati per email a due utenti SALES, più una richiesta per ciascuno."""
-    ids = {}
-    for n in (1, 2):
-        ids[n] = client.post(f"{API}/agents", headers=ADMIN,
-                             json={"full_name": f"Sales {n}", "email": f"sales{n}@az.it"}).json()["id"]
-    for h in (ADMIN, BACK, S1, S2):                 # primo login: crea utenti e auto-collega gli agenti
+    """Due utenti SALES (sono essi stessi gli agenti) e una richiesta per ciascuno."""
+    for h in (ADMIN, BACK, S1, S2):                 # primo accesso: crea gli utenti
         client.get(f"{API}/me", headers=h)
+    ids = {n: client.get(f"{API}/me", headers=h).json()["id"] for n, h in ((1, S1), (2, S2))}
 
     def mk(h, **kw):
         body = {"request_type": "NUOVO", "subject": "Q", "vendor_id": seed["vendor"]["id"],
@@ -106,6 +103,7 @@ def test_backoffice_reads_config_but_cannot_configure(client, team):
 def test_sales_sees_only_self_in_agents_and_no_vendor_emails(client, team):
     agents = client.get(f"{API}/agents", headers=S1).json()
     assert [a["email"] for a in agents] == ["sales1@az.it"]
+    # il Backoffice vede tutti gli agenti = utenti SALES attivi (Mario + sales1 + sales2)
     assert len(client.get(f"{API}/agents", headers=BACK).json()) == 3
     m = client.get(f"{API}/vendor-supplier-map", headers=S1).json()
     assert m and m[0]["to_emails"] == [] and m[0]["cc_emails"] == []        # mapping visibile, indirizzi no
@@ -123,22 +121,18 @@ def test_dashboard_is_scoped_for_sales(client, team):
     assert client.get(f"{API}/dashboard/vendors", headers=S2).json()[0]["richieste"] == 1
 
 
-def test_sales_without_linked_agent_sees_nothing_and_cannot_create(client, team, seed):
-    h = H("sales9@az.it")                            # nessun agente con questa email
-    assert client.get(f"{API}/requests", headers=h).json() == {"items": [], "total": 0}
-    res = client.post(f"{API}/requests", headers=h, json={"request_type": "NUOVO", "subject": "Q"})
-    assert res.status_code == 403
-    # l'admin lo collega a mano a un agente e da quel momento vede le richieste di quell'agente
-    uid = next(u["id"] for u in client.get(f"{API}/users", headers=ADMIN).json() if u["email"] == "sales9@az.it")
-    free = client.post(f"{API}/agents", headers=ADMIN, json={"full_name": "Libero", "email": "libero@az.it"}).json()
-    r = client.patch(f"{API}/users/{uid}", headers=ADMIN, json={"sales_agent_id": free["id"]})
-    assert r.status_code == 200 and r.json()["sales_agent_id"] == free["id"]
-    assert client.post(f"{API}/requests", headers=h, json={"request_type": "NUOVO", "subject": "Q"}).status_code == 201
+def test_staff_can_only_assign_sales_users_as_agents(client, team, seed):
+    back_id = client.get(f"{API}/me", headers=BACK).json()["id"]
+    res = client.post(f"{API}/requests", headers=BACK, json={
+        "request_type": "NUOVO", "subject": "Q", "sales_agent_id": back_id})
+    assert res.status_code == 422 and "sales_agent_id" in res.json()["detail"]["fields"]
+    ok = client.post(f"{API}/requests", headers=BACK, json={
+        "request_type": "NUOVO", "subject": "Q", "sales_agent_id": team["agents"][1]})
+    assert ok.status_code == 201
 
 
-def test_admin_changes_role_and_unlinks_agent(client, team):
-    uid = next(u["id"] for u in client.get(f"{API}/users", headers=ADMIN).json() if u["email"] == "sales1@az.it")
-    assert client.patch(f"{API}/users/{uid}", headers=ADMIN, json={"sales_agent_id": None}).json()["sales_agent_id"] is None
+def test_admin_changes_role_and_deactivates(client, team):
+    uid = team["agents"][1]
     assert client.patch(f"{API}/users/{uid}", headers=ADMIN, json={"role": "BACKOFFICE"}).json()["role"] == "BACKOFFICE"
     assert client.get(f"{API}/requests", headers=S1).json()["total"] == 3   # ora vede tutto
     assert client.patch(f"{API}/users/{uid}", headers=ADMIN, json={"is_active": False}).status_code == 200

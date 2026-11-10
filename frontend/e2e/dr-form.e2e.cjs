@@ -1,8 +1,13 @@
-// E2E (Playwright): form DR dinamico. Richiede backend (AUTH_DISABLED=true) + 'npm run dev' e dati seed (scripts/seed_demo.sh).
+// E2E (Playwright): form DR dinamico. Richiede backend con AUTH_DISABLED=true + 'npm run dev'. Crea da solo i dati di prova.
 const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1300, height: 900 } });
   const errs = []; p.on('pageerror', e => errs.push(e.message));
+  // dati di prova (modalità sviluppo: utente passato con l'header X-Dev-User)
+  const api = (m, u, d) => fetch('http://localhost:5173/api/v1' + u, { method: m, headers: { 'Content-Type': 'application/json', 'X-Dev-User': 'admin@az.it' }, body: JSON.stringify(d) });
+  await api('POST', '/vendors', { name: 'Cisco' }); await api('POST', '/suppliers', { name: 'Arrow' });
+  await api('POST', '/users', { username: 'mario.rossi', full_name: 'Mario Rossi', email: 'mario@az.it', role: 'SALES', password: 'Provvisoria-2026' });
+  await api('PUT', '/vendor-supplier-map', { vendor_id: 1, supplier_id: 1, to_emails: ['deals@arrow.example.com'], is_preferred: true });
   await p.goto('http://localhost:5173/requests/new');
   await p.waitForSelector('select[aria-label="Tipo richiesta"]');
   const ok = (c, m) => { console.log((c ? 'OK   ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };

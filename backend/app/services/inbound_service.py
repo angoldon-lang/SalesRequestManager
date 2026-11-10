@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     InboundEmail, InboundStatus, Request, RequestSource, RequestStatus, RequestType,
-    SalesAgent, Supplier, Vendor, VendorSupplierMap,
+    AppUser, Supplier, UserRole, Vendor, VendorSupplierMap,
 )
 from app.services import llm_parser
 from app.services.request_service import add_event, get_config, now
@@ -56,8 +56,8 @@ def create_draft(db: Session, row: InboundEmail, parsed: dict) -> Request | None
         pref = db.scalar(select(VendorSupplierMap).where(
             VendorSupplierMap.vendor_id == vendor.id, VendorSupplierMap.is_preferred))
         supplier = db.get(Supplier, pref.supplier_id) if pref else None
-    agent = db.scalar(select(SalesAgent).where(
-        SalesAgent.email == str(row.from_email).lower(), SalesAgent.is_active))
+    agent = db.scalar(select(AppUser).where(
+        AppUser.email == str(row.from_email).lower(), AppUser.role == UserRole.SALES, AppUser.is_active))
 
     needs_review = (p["confidence"] < CONFIDENCE_THRESHOLD or bool(p["missing_fields"])
                     or vendor is None or supplier is None or agent is None)

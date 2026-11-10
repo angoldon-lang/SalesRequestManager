@@ -8,12 +8,13 @@ Gestione delle richieste commerciali verso vendor/supplier, integrata con Micros
 - **M365:** Microsoft Graph (invio, lettura mailbox, reply-all) — vedi [docs/m365-setup.md](docs/m365-setup.md)
 - **AI:** Anthropic Claude con tool use forzato; prompt in `backend/app/services/llm_parser.py`
 
-## Ruoli
-- **Admin / Direzione Sales:** vede tutto e configura.
+## Accesso e ruoli
+Login con utente e password. Al primo avvio esiste l'utente **`admin`** con password **`ChangeMe!2026`**: il cambio è obbligatorio al primo accesso.
+- **Admin / Direzione Sales:** vede tutto, configura, gestisce utenti e ruoli.
 - **Backoffice:** vede e gestisce tutto, non configura.
-- **Sales:** vede solo le proprie richieste.
+- **Sales (agente commerciale):** vede solo le proprie richieste. L'agente è un utente con ruolo Sales.
 
-Dettaglio permessi e collegamento utente→agente: [docs/ruoli.md](docs/ruoli.md).
+Dettagli: [docs/ruoli.md](docs/ruoli.md).
 
 ## Funzioni
 | Sprint | Contenuto |
@@ -40,23 +41,21 @@ Le migrazioni partono all'avvio dell'API. **Esegui un solo worker.**
 # Backend (PostgreSQL in esecuzione; imposta DATABASE_URL)
 cd backend && pip install -r requirements.txt
 alembic upgrade head
-AUTH_DISABLED=true GRAPH_MODE=dry-run uvicorn app.main:app --reload     # API su :8000, docs su /docs
+GRAPH_MODE=dry-run uvicorn app.main:app --reload                         # API su :8000, docs su /docs; admin/ChangeMe!2026
 
 # Frontend
 cd frontend && npm install && npm run dev                                # UI su :5173
-scripts/seed_demo.sh                                                     # dati demo
+scripts/seed_demo.sh http://localhost:5173 admin '<password>'            # dati demo
 ```
-In sviluppo il ruolo dipende dal prefisso dell'utente (`X-Dev-User`): `back*` = Backoffice, `sales*` = Sales, altrimenti Admin; il selettore in basso a sinistra nella UI li alterna. Un Sales viene collegato all'agente con la stessa email.
-
-`AUTH_DISABLED` e `GRAPH_MODE=dry-run` evitano login e invii reali (le mail vengono solo loggate). **Mai in produzione.**
+`GRAPH_MODE=dry-run` evita gli invii reali (le mail vengono solo loggate). Per i test automatici esiste `AUTH_DISABLED=true` (nessun login, ruolo dal prefisso dell'header `X-Dev-User`: `back*`, `sales*`, altrimenti Admin). **Mai in produzione.**
 
 ## Test
 ```bash
 cd backend && TEST_DATABASE_URL=postgresql+psycopg://postgres@localhost/srm_test pytest -q   # DB *_test
 cd frontend && npm run build                                                                  # type-check + build
 ```
-I test backend usano un Graph e un LLM finti: coprono regole DR, destinatari/CC, macchina a stati, reminder (weekend, max, fallimenti, risposta vendor), inbound (idempotenza, review, errori), dashboard e i 3 ruoli (visibilità, permessi, collegamento agente).
-E2E del form DR: `frontend/e2e/dr-form.e2e.cjs` (Playwright).
+I test backend usano un Graph e un LLM finti: coprono login e cambio password obbligatorio, blocco account, regole DR, destinatari/CC, macchina a stati, reminder (weekend, max, fallimenti, risposta vendor), inbound (idempotenza, review, errori), dashboard e i 3 ruoli (visibilità, permessi, collegamento agente).
+E2E (Playwright) in `frontend/e2e/`: `auth` (login), `dr-form` (form DR), `roles` (visibilità per ruolo).
 
 ## API
 Documentazione interattiva: `GET /docs`. Prefisso `/api/v1`: `requests`, `vendors`, `suppliers`, `agents`, `vendor-supplier-map`, `config`, `inbound`, `dashboard`, `users`, `me`.

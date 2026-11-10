@@ -27,15 +27,11 @@ def request_scope(user: AppUser):
     """Condizione SQLAlchemy da applicare alle query su Request (None = nessuna restrizione)."""
     if is_staff(user):
         return None
-    conds = [Request.created_by == user.id]
-    if user.sales_agent_id:
-        conds.append(Request.sales_agent_id == user.sales_agent_id)
-    return or_(*conds)
+    return or_(Request.created_by == user.id, Request.sales_agent_id == user.id)
 
 
 def can_see(user: AppUser, r: Request) -> bool:
-    return is_staff(user) or r.created_by == user.id or (
-        user.sales_agent_id is not None and r.sales_agent_id == user.sales_agent_id)
+    return is_staff(user) or r.created_by == user.id or r.sales_agent_id == user.id
 
 
 def scope_sql(user: AppUser, alias: str = "") -> tuple[str, dict]:
@@ -44,4 +40,4 @@ def scope_sql(user: AppUser, alias: str = "") -> tuple[str, dict]:
         return "", {}
     p = f"{alias}." if alias else ""
     return (f" AND ({p}created_by = :scope_uid OR {p}sales_agent_id = :scope_aid)",
-            {"scope_uid": user.id, "scope_aid": user.sales_agent_id})
+            {"scope_uid": user.id, "scope_aid": user.id})

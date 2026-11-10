@@ -32,7 +32,7 @@ def schema():
 def clean():
     with engine.begin() as c:
         c.execute(text("TRUNCATE request_events, requests, inbound_emails, vendor_supplier_map, "
-                       "suppliers, vendors, sales_agents, app_users, global_config RESTART IDENTITY CASCADE"))
+                       "suppliers, vendors, app_users, global_config RESTART IDENTITY CASCADE"))
         c.execute(text("INSERT INTO global_config (sender_email, inbound_mailbox, default_cc, "
                        "reminder_after_days, reminder_max_count) VALUES "
                        "('richieste@az.it','inbound@az.it','{admin@az.it,Rich@az.it}', 3, 2)"))
@@ -120,8 +120,9 @@ def seed(client):
     h = H()
     v = client.post("/api/v1/vendors", json={"name": "Cisco"}, headers=h).json()
     sup = client.post("/api/v1/suppliers", json={"name": "Arrow"}, headers=h).json()
-    ag = client.post("/api/v1/agents", json={"full_name": "Mario Rossi", "email": "Mario.Rossi@az.it"},
-                     headers=h).json()
+    ag = client.post("/api/v1/users", headers=h, json={       # l'agente è un utente con ruolo SALES
+        "username": "mario.rossi", "full_name": "Mario Rossi", "email": "Mario.Rossi@az.it",
+        "role": "SALES", "password": "Temporanea#2026"}).json()
     m = client.put("/api/v1/vendor-supplier-map", headers=h, json={
         "vendor_id": v["id"], "supplier_id": sup["id"], "to_emails": ["Deals@Arrow.com"],
         "cc_emails": ["admin@az.it"], "is_preferred": True}).json()
